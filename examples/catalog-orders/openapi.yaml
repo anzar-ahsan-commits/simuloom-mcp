@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: Synthetic Catalog and Orders API
+  version: 1.0.0
+  description: Domain-independent SimuLoom demonstration containing fictional data only.
+paths:
+  /catalog/{itemId}:
+    parameters:
+      - name: X-Tenant-ID
+        in: header
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCatalogItem
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 4
+        - name: locale
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [en-US, es-US]
+      responses:
+        "200":
+          description: Synthetic catalog item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItem"
+  /orders:
+    post:
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrder"
+      responses:
+        "201":
+          description: Synthetic order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+components:
+  schemas:
+    CatalogItem:
+      type: object
+      required: [itemId, name, available]
+      additionalProperties: false
+      properties:
+        itemId:
+          type: string
+        name:
+          type: string
+        available:
+          type: boolean
+    CreateOrder:
+      type: object
+      required: [itemId, quantity, contactEmail]
+      additionalProperties: false
+      properties:
+        itemId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+        contactEmail:
+          type: string
+          format: email
+    Order:
+      type: object
+      required: [orderId, status]
+      additionalProperties: false
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ACCEPTED, PROCESSING]

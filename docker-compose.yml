@@ -1,0 +1,24 @@
+services:
+  simuloom:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      SIMULOOM_WORKSPACE: /app/workspace
+      WIREMOCK_URL: http://wiremock:8080
+      SIMULOOM_AUTH_ENABLED: ${SIMULOOM_AUTH_ENABLED:-false}
+      SIMULOOM_API_KEYS: '${SIMULOOM_API_KEYS:-{}}'
+      SIMULOOM_AUDIT_SIGNING_KEY: ${SIMULOOM_AUDIT_SIGNING_KEY:-}
+    volumes:
+      - simuloom-workspace:/app/workspace
+    depends_on:
+      - wiremock
+
+  wiremock:
+    image: wiremock/wiremock:3.13.2
+    ports:
+      - "8080:8080"
+    command: ["--global-response-templating", "--verbose"]
+
+volumes:
+  simuloom-workspace:

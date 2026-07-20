@@ -1,0 +1,96 @@
+openapi: 3.1.0
+info:
+  title: Synthetic Benefits Eligibility API
+  version: 1.0.0
+  description: Demonstration contract containing fictional data only.
+paths:
+  /eligibility/{memberId}:
+    get:
+      operationId: checkEligibility
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Eligibility result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityResult"
+        "404":
+          description: Synthetic member not found
+  /eligibility/requests:
+    post:
+      operationId: beginEligibilityRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memberId]
+              properties:
+                memberId:
+                  type: string
+      responses:
+        "202":
+          description: Eligibility request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityRequestStatus"
+  /eligibility/requests/{requestId}:
+    get:
+      operationId: getEligibilityRequest
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current eligibility request status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityRequestStatus"
+        "404":
+          description: Request not found
+components:
+  schemas:
+    EligibilityResult:
+      type: object
+      required: [memberId, status, synthetic]
+      properties:
+        memberId:
+          type: string
+          example: SYN-1207-000001
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+        planName:
+          type: string
+          example: Synthetic Gold Plan
+        effectiveDate:
+          type: string
+          format: date
+        synthetic:
+          type: boolean
+          example: true
+    EligibilityRequestStatus:
+      type: object
+      required: [requestId, status, synthetic]
+      properties:
+        requestId:
+          type: string
+          example: REQ-SYN-001
+        status:
+          type: string
+          enum: [SUBMITTED, PROCESSING, COMPLETED]
+        synthetic:
+          type: boolean
+          example: true
