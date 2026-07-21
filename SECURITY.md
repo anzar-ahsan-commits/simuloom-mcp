@@ -18,7 +18,15 @@ issue, pull request, simulation bundle, or reproduction case.
 
 ## Current security boundary
 
-SimuLoom v0.7 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.8 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.
+
+Scenario definitions are limited in size and complexity, restricted to approved OpenAPI
+operations and response codes, and cannot target WireMock admin paths. SimuLoom rejects
+unsafe response framing headers and validates declared JSON responses when a response schema
+is available.
+
+Individual scenario resets require operator access. Resetting every scenario in the shared
+WireMock runtime requires admin access and should be treated as a cross-simulation operation.

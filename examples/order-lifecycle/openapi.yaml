@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: Synthetic Order Lifecycle API
+  version: 1.0.0
+  description: Fictional order lifecycle used to demonstrate deterministic scenarios.
+paths:
+  /orders:
+    post:
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrder"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Current order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+  /orders/{orderId}/payment:
+    post:
+      operationId: payOrder
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Payment"
+      responses:
+        "200":
+          description: Paid order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+  /orders/{orderId}/shipment:
+    post:
+      operationId: shipOrder
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Shipment"
+      responses:
+        "200":
+          description: Shipped order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+components:
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateOrder:
+      type: object
+      required: [itemId, quantity]
+      additionalProperties: false
+      properties:
+        itemId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+    Payment:
+      type: object
+      required: [paymentToken]
+      additionalProperties: false
+      properties:
+        paymentToken:
+          type: string
+    Shipment:
+      type: object
+      required: [carrier]
+      additionalProperties: false
+      properties:
+        carrier:
+          type: string
+    Order:
+      type: object
+      required: [orderId, itemId, quantity, status, synthetic]
+      additionalProperties: false
+      properties:
+        orderId:
+          type: string
+        itemId:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED]
+        synthetic:
+          type: boolean

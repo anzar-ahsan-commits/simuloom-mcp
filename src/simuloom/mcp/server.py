@@ -7,6 +7,7 @@ import json
 from mcp.server.fastmcp import FastMCP
 
 from simuloom.container import service
+from simuloom.models import ScenarioDefinition
 from simuloom.security import Role, require_current_role
 
 mcp = FastMCP(
@@ -109,6 +110,54 @@ def import_simulation_bundle(
     return service.import_bundle(data, source_name).model_dump()
 
 
+@mcp.tool()
+def configure_scenario(simulation_id: str, scenario_id: str, definition: dict) -> dict:
+    """Create or replace a validated stateful scenario for a simulation."""
+    require_current_role(Role.OPERATOR)
+    parsed = ScenarioDefinition.model_validate(definition)
+    return service.configure_scenario(simulation_id, scenario_id, parsed).model_dump(mode="json")
+
+
+@mcp.tool()
+async def inspect_scenario(simulation_id: str, scenario_id: str) -> dict:
+    """Inspect a scenario definition and its current WireMock runtime state."""
+    require_current_role(Role.VIEWER)
+    definition = service.get_scenario(simulation_id, scenario_id)
+    runtime = await service.scenario_state(simulation_id, scenario_id)
+    return {
+        "definition": definition.model_dump(mode="json"),
+        "runtime": runtime.model_dump(mode="json"),
+    }
+
+
+@mcp.tool()
+def compile_scenario(simulation_id: str, scenario_id: str) -> dict:
+    """Compile a configured scenario into deterministic WireMock mappings."""
+    require_current_role(Role.OPERATOR)
+    return service.compile_scenario(simulation_id, scenario_id).model_dump(mode="json")
+
+
+@mcp.tool()
+async def deploy_scenario(simulation_id: str, scenario_id: str) -> dict:
+    """Compile, deploy, and initialize one configured scenario."""
+    require_current_role(Role.OPERATOR)
+    return (await service.deploy_scenario(simulation_id, scenario_id)).model_dump(mode="json")
+
+
+@mcp.tool()
+async def reset_scenario(simulation_id: str, scenario_id: str) -> dict:
+    """Reset one deployed scenario to its configured reset state."""
+    require_current_role(Role.OPERATOR)
+    return (await service.reset_scenario(simulation_id, scenario_id)).model_dump(mode="json")
+
+
+@mcp.tool()
+async def reset_all_scenarios() -> dict:
+    """Reset all WireMock scenarios; this global operation requires admin."""
+    require_current_role(Role.ADMIN)
+    return (await service.reset_all_scenarios()).model_dump(mode="json")
+
+
 @mcp.resource("simulation://{simulation_id}/manifest", mime_type="application/json")
 def simulation_manifest(simulation_id: str) -> str:
     """Return current simulation metadata as a read-only MCP resource."""
@@ -135,3 +184,23 @@ def current_dataset(simulation_id: str) -> str:
     """Return the current synthetic-only dataset and its generation metadata."""
     require_current_role(Role.VIEWER)
     return service.get_dataset(simulation_id).model_dump_json(indent=2)
+
+
+@mcp.resource(
+    "scenario://{simulation_id}/{scenario_id}/definition",
+    mime_type="application/json",
+)
+def scenario_definition(simulation_id: str, scenario_id: str) -> str:
+    """Return a configured scenario definition as a read-only resource."""
+    require_current_role(Role.VIEWER)
+    return service.get_scenario(simulation_id, scenario_id).model_dump_json(indent=2)
+
+
+@mcp.resource(
+    "scenario://{simulation_id}/{scenario_id}/state",
+    mime_type="application/json",
+)
+async def scenario_state(simulation_id: str, scenario_id: str) -> str:
+    """Return the current WireMock state for a configured scenario."""
+    require_current_role(Role.VIEWER)
+    return (await service.scenario_state(simulation_id, scenario_id)).model_dump_json(indent=2)

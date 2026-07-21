@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OperationSummary(BaseModel):
@@ -181,3 +181,135 @@ class ImportResult(BaseModel):
     imported_dataset_records: int
     active_profile: str
     warnings: list[str] = Field(default_factory=list)
+
+
+class ScenarioRequestMatcher(BaseModel):
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+    path: str = Field(min_length=1, max_length=500)
+    query_parameters: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+    json_body: Any = None
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        if not value.startswith("/") or value.startswith("/__admin"):
+            raise ValueError("Scenario request path must be a service-relative non-admin path")
+        return value
+
+
+class ScenarioResponseDefinition(BaseModel):
+    status: int = Field(ge=100, le=599)
+    headers: dict[str, str] = Field(default_factory=dict)
+    json_body: Any = None
+
+    @model_validator(mode="after")
+    def reject_unsafe_headers(self) -> ScenarioResponseDefinition:
+        unsafe = {"connection", "content-length", "transfer-encoding", "upgrade"}
+        supplied = {name.lower() for name in self.headers}
+        if blocked := sorted(supplied & unsafe):
+            raise ValueError(f"Scenario response contains unsafe headers: {', '.join(blocked)}")
+        return self
+
+
+class ScenarioHandler(BaseModel):
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+    request: ScenarioRequestMatcher
+    response: ScenarioResponseDefinition
+    new_state: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class ScenarioStateDefinition(BaseModel):
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+    handlers: list[ScenarioHandler] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_unique_handlers(self) -> ScenarioStateDefinition:
+        names = [handler.name for handler in self.handlers]
+        if len(names) != len(set(names)):
+            raise ValueError(f"Scenario state '{self.name}' contains duplicate handler names")
+        return self
+
+
+class ScenarioResetDefinition(BaseModel):
+    target_state: str = Field(min_length=1, max_length=80)
+
+
+class ScenarioDefinition(BaseModel):
+    name: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+    description: str = Field(min_length=1, max_length=500)
+    initial_state: str = Field(min_length=1, max_length=80)
+    states: list[ScenarioStateDefinition] = Field(min_length=1, max_length=50)
+    reset: ScenarioResetDefinition | None = None
+
+    @model_validator(mode="after")
+    def validate_state_graph(self) -> ScenarioDefinition:
+        state_names = [state.name for state in self.states]
+        known = set(state_names)
+        if len(state_names) != len(known):
+            raise ValueError("Scenario contains duplicate state names")
+        if self.initial_state not in known:
+            raise ValueError("Scenario initial_state must reference a declared state")
+        reset_state = self.reset.target_state if self.reset else self.initial_state
+        if reset_state not in known:
+            raise ValueError("Scenario reset target_state must reference a declared state")
+        handlers = [handler for state in self.states for handler in state.handlers]
+        if len(handlers) > 200:
+            raise ValueError("Scenario cannot contain more than 200 handlers")
+        for handler in handlers:
+            if handler.new_state is not None and handler.new_state not in known:
+                raise ValueError(
+                    f"Scenario handler '{handler.name}' references unknown state "
+                    f"'{handler.new_state}'"
+                )
+        return self
+
+    @property
+    def reset_state(self) -> str:
+        return self.reset.target_state if self.reset else self.initial_state
+
+
+class ScenarioView(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    definition: ScenarioDefinition
+
+
+class ScenarioRuntimeState(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    wiremock_scenario_name: str
+    configured_initial_state: str
+    configured_reset_state: str
+    current_state: str | None
+    deployed: bool
+
+
+class ScenarioCompileResult(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    wiremock_scenario_name: str
+    mapping_count: int
+    status: Literal["compiled"]
+
+
+class ScenarioDeployResult(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    wiremock_scenario_name: str
+    deployed_mappings: int
+    current_state: str
+    status: Literal["deployed"]
+
+
+class ScenarioResetResult(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    wiremock_scenario_name: str
+    current_state: str
+    status: Literal["reset"]
+
+
+class ScenarioResetAllResult(BaseModel):
+    reset_scenarios: int
+    status: Literal["reset"]

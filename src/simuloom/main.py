@@ -24,8 +24,8 @@ def create_app(
 ) -> FastAPI:
     application = FastAPI(
         title="SimuLoom",
-        version="0.7.0",
-        description="Contract-driven service virtualization and synthetic test-data control plane.",
+        version="0.8.0",
+        description="Contract-driven service virtualization, scenarios, and synthetic test data.",
         lifespan=lifespan,
     )
     selected_controller = controller or access_controller

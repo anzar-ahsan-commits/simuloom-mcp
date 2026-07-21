@@ -20,6 +20,13 @@ from simuloom.models import (
     ImportResult,
     ProfileConfigRequest,
     ProfileResult,
+    ScenarioCompileResult,
+    ScenarioDefinition,
+    ScenarioDeployResult,
+    ScenarioResetAllResult,
+    ScenarioResetResult,
+    ScenarioRuntimeState,
+    ScenarioView,
     Simulation,
     ValidationPlan,
     ValidationPlanRequest,
@@ -211,6 +218,117 @@ async def import_simulation(
         return service.import_bundle(data, bundle.filename or "uploaded-bundle")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}",
+    response_model=ScenarioView,
+)
+def configure_scenario(
+    simulation_id: str,
+    scenario_id: str,
+    definition: ScenarioDefinition,
+    _principal: OperatorPrincipal,
+) -> ScenarioView:
+    try:
+        return service.configure_scenario(simulation_id, scenario_id, definition)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}",
+    response_model=ScenarioView,
+)
+def get_scenario(simulation_id: str, scenario_id: str, _principal: ViewerPrincipal) -> ScenarioView:
+    try:
+        return service.get_scenario(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/state",
+    response_model=ScenarioRuntimeState,
+)
+async def get_scenario_state(
+    simulation_id: str, scenario_id: str, _principal: ViewerPrincipal
+) -> ScenarioRuntimeState:
+    try:
+        return await service.scenario_state(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"WireMock state inspection failed: {exc}"
+        ) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/compile",
+    response_model=ScenarioCompileResult,
+)
+def compile_scenario(
+    simulation_id: str, scenario_id: str, _principal: OperatorPrincipal
+) -> ScenarioCompileResult:
+    try:
+        return service.compile_scenario(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/deploy",
+    response_model=ScenarioDeployResult,
+)
+async def deploy_scenario(
+    simulation_id: str, scenario_id: str, _principal: OperatorPrincipal
+) -> ScenarioDeployResult:
+    try:
+        return await service.deploy_scenario(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"WireMock scenario deployment failed: {exc}"
+        ) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/reset",
+    response_model=ScenarioResetResult,
+)
+async def reset_scenario(
+    simulation_id: str, scenario_id: str, _principal: OperatorPrincipal
+) -> ScenarioResetResult:
+    try:
+        return await service.reset_scenario(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"WireMock scenario reset failed: {exc}"
+        ) from exc
+
+
+@router.post("/scenarios/reset", response_model=ScenarioResetAllResult)
+async def reset_all_scenarios(_principal: AdminPrincipal) -> ScenarioResetAllResult:
+    try:
+        return await service.reset_all_scenarios()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"WireMock scenario reset failed: {exc}"
+        ) from exc
 
 
 @router.get("/audit/events")
