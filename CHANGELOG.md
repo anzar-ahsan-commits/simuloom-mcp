@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.42.0 - Public Launch Readiness and AI Reliability
+
+- Added Ollama connectivity, configured-model discovery, latency, and actionable readiness states.
+- Grounded Copilot diagnostics in bounded validation summaries and failed-case evidence.
+- Added durable conversation rename, archive, listing, and deletion behavior with ownership checks.
+- Added public project contribution, support, governance, issue, and pull request guidance.
+- Added CodeQL, Dependabot, tag-driven GitHub releases, GHCR publication, provenance attestations,
+  and PyPI Trusted Publishing automation.
+- Added package metadata, OCI image labels, public-beta deployment coordinates, and readiness-based
+  container health checks.
+- Added a comprehensive technical guide and owner-facing public-launch runbook.
+- Advanced the durable platform schema to v5.
+
 ## 0.41.0 - AI Operations Copilot
 
 - Added persistent, simulation-grounded local-AI conversations in the REST API and console.

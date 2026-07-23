@@ -28,12 +28,18 @@ async function loadCopilotSettings() {
   try {
     copilot.settings = await api("/ai/settings");
     const status = $("#copilot-ai-status");
-    status.textContent = copilot.settings.enabled ? `${copilot.settings.model} enabled` : "AI disabled";
-    status.classList.toggle("disabled", !copilot.settings.enabled);
+    const labels = {
+      disabled: "AI disabled",
+      unreachable: "Ollama unavailable",
+      "model-missing": `${copilot.settings.model} missing`,
+      ready: `${copilot.settings.model} ready`,
+    };
+    status.textContent = labels[copilot.settings.status];
+    status.classList.toggle("disabled", copilot.settings.status !== "ready");
     const toggle = $("#copilot-ai-toggle");
     toggle.textContent = copilot.settings.enabled ? "Disable AI" : "Enable AI";
     toggle.disabled = state.role !== "admin";
-    toggle.title = state.role === "admin" ? `${copilot.settings.provider} at ${copilot.settings.base_url}` : "Admin role required";
+    toggle.title = state.role === "admin" ? `${copilot.settings.provider} at ${copilot.settings.base_url}${copilot.settings.response_time_ms ? ` · ${copilot.settings.response_time_ms} ms` : ""}` : "Admin role required";
   } catch (error) { notify(error.message, true); }
 }
 
@@ -92,6 +98,39 @@ function renderCopilotMessages(thread) {
   $$('[data-ai-approve]', target).forEach((button) => button.addEventListener("click", () => decideCopilotAction(button.dataset.aiApprove, true)));
   $$('[data-ai-reject]', target).forEach((button) => button.addEventListener("click", () => decideCopilotAction(button.dataset.aiReject, false)));
   target.scrollTop = target.scrollHeight;
+  ["#copilot-rename", "#copilot-archive", "#copilot-delete"].forEach((selector) => {
+    $(selector).disabled = !copilot.selectedId;
+  });
+}
+
+async function renameCopilotThread() {
+  if (!copilot.selectedId) return;
+  const current = copilot.threads.find((item) => item.id === copilot.selectedId);
+  const values = await openWorkflowDialog({
+    title: "Rename conversation",
+    description: "Use a title that identifies the simulation question or investigation.",
+    submitLabel: "Rename",
+    fields: [{ name: "title", label: "Conversation title", value: current?.title || "" }],
+  });
+  if (!values) return;
+  await api(`/ai/chat/threads/${copilot.selectedId}`, { method: "PATCH", body: JSON.stringify({ title: values.title }) });
+  await loadCopilotThreads();
+}
+
+async function archiveCopilotThread() {
+  if (!copilot.selectedId || !window.confirm("Archive this conversation? Its history will be retained.")) return;
+  await api(`/ai/chat/threads/${copilot.selectedId}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+  rememberCopilotThread(null);
+  await loadCopilotThreads();
+  notify("Conversation archived");
+}
+
+async function deleteCopilotThread() {
+  if (!copilot.selectedId || !window.confirm("Permanently delete this conversation and its proposals?")) return;
+  await api(`/ai/chat/threads/${copilot.selectedId}`, { method: "DELETE" });
+  rememberCopilotThread(null);
+  await loadCopilotThreads();
+  notify("Conversation deleted");
 }
 
 async function selectCopilotThread(threadId) {
@@ -136,4 +175,7 @@ function initializeCopilot() {
   $("#new-chat-button").addEventListener("click", createCopilotThread);
   $("#copilot-form").addEventListener("submit", sendCopilotMessage);
   $("#copilot-ai-toggle").addEventListener("click", toggleCopilotAI);
+  $("#copilot-rename").addEventListener("click", renameCopilotThread);
+  $("#copilot-archive").addEventListener("click", archiveCopilotThread);
+  $("#copilot-delete").addEventListener("click", deleteCopilotThread);
 }

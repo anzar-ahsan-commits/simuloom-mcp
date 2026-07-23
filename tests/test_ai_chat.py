@@ -114,7 +114,12 @@ def test_ai_chat_is_disabled_without_opt_in(tmp_path: Path, monkeypatch) -> None
 
 def test_admin_can_persist_ai_enablement_from_rest(tmp_path: Path, monkeypatch) -> None:
     store = PlatformStore(tmp_path / "platform.db")
-    assistant = ScenarioAIAssistant(False, "http://ollama:11434", "local-model")
+    assistant = ScenarioAIAssistant(
+        False,
+        "http://ollama:11434",
+        "local-model",
+        httpx.MockTransport(lambda _: httpx.Response(503)),
+    )
     monkeypatch.setattr("simuloom.api.routes.platform_store", store)
     monkeypatch.setattr("simuloom.api.routes.ai_assistant", assistant)
     keys = {
@@ -140,6 +145,44 @@ def test_admin_can_persist_ai_enablement_from_rest(tmp_path: Path, monkeypatch) 
         "model": "local-model",
         "base_url": "http://ollama:11434",
         "persisted": True,
+        "reachable": False,
+        "model_available": False,
+        "status": "unreachable",
+        "response_time_ms": None,
     }
     assert assistant.enabled is True
     assert store.get_setting("ai.enabled") == "true"
+
+
+def test_conversation_can_be_renamed_archived_and_deleted(tmp_path: Path, monkeypatch) -> None:
+    store = PlatformStore(tmp_path / "platform.db")
+    test_service = SimulationService(
+        WorkspaceRepository(tmp_path / "workspace"), WireMockClient("http://wiremock.invalid")
+    )
+    simulation = test_service.create("Lifecycle API", contract())
+    monkeypatch.setattr("simuloom.api.routes.platform_store", store)
+    monkeypatch.setattr("simuloom.api.routes.service", test_service)
+    client = TestClient(create_app())
+    try:
+        created = client.post(
+            "/api/v1/ai/chat/threads",
+            json={"simulation_id": simulation.id, "title": "Initial investigation"},
+        )
+        thread_id = created.json()["id"]
+        renamed = client.patch(
+            f"/api/v1/ai/chat/threads/{thread_id}", json={"title": "Failed validation"}
+        )
+        archived = client.patch(f"/api/v1/ai/chat/threads/{thread_id}", json={"archived": True})
+        active = client.get("/api/v1/ai/chat/threads")
+        all_threads = client.get("/api/v1/ai/chat/threads?include_archived=true")
+        deleted = client.delete(f"/api/v1/ai/chat/threads/{thread_id}")
+        missing = client.get(f"/api/v1/ai/chat/threads/{thread_id}")
+    finally:
+        client.close()
+
+    assert renamed.json()["title"] == "Failed validation"
+    assert archived.json()["archived"] is True
+    assert active.json() == []
+    assert all_threads.json()[0]["id"] == thread_id
+    assert deleted.status_code == 204
+    assert missing.status_code == 404

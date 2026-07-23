@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.41.0 includes governed releases, promotion, templates, deterministic orchestration,
+SimuLoom v0.42.0 includes governed releases, promotion, templates, deterministic orchestration,
 observability, and bounded workspace backup/restore.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
@@ -40,6 +40,8 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | POST/GET | `/api/v1/ai/chat/threads` | viewer | Start or list persistent grounded conversations |
 | GET | `/api/v1/ai/settings` | viewer | Inspect local-AI enablement and configured provider |
 | PUT | `/api/v1/ai/settings` | admin | Persistently enable or disable local AI |
+| PATCH | `/api/v1/ai/chat/threads/{thread_id}` | owner/admin | Rename or archive a conversation |
+| DELETE | `/api/v1/ai/chat/threads/{thread_id}` | owner/admin | Delete a conversation and proposals |
 | GET | `/api/v1/ai/chat/threads/{thread_id}` | viewer | Inspect owned history and proposals |
 | POST | `/api/v1/ai/chat/threads/{thread_id}/messages` | viewer | Send a grounded copilot message |
 | POST | `/api/v1/ai/chat/actions/{action_id}/approve` | operator | Approve and execute an allowlisted proposal |

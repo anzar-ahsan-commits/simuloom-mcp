@@ -55,6 +55,10 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
     assert 'api("/ai/settings")' in copilot.text
     assert "toggleCopilotAI" in copilot.text
     assert 'id="copilot-ai-toggle"' in console.text
+    assert 'id="copilot-rename"' in console.text
+    assert "archiveCopilotThread" in copilot.text
+    assert "deleteCopilotThread" in copilot.text
+    assert "Ollama unavailable" in copilot.text
     assert "innerHTML = definition" not in designer.text
     assert styles.status_code == 200
     assert "--accent" in styles.text

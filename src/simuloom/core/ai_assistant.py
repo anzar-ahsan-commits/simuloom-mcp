@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -44,6 +45,38 @@ class ScenarioAIAssistant:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.transport = transport
+
+    async def status(self) -> dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=5,
+                follow_redirects=False,
+                transport=self.transport,
+            ) as client:
+                response = await client.get("/api/tags")
+                response.raise_for_status()
+            names = {
+                str(item.get("name", ""))
+                for item in response.json().get("models", [])
+                if isinstance(item, dict)
+            }
+            available = self.model in names or f"{self.model}:latest" in names
+            status = "disabled" if not self.enabled else "ready" if available else "model-missing"
+            return {
+                "reachable": True,
+                "model_available": available,
+                "status": status,
+                "response_time_ms": round((time.perf_counter() - started) * 1000, 2),
+            }
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            return {
+                "reachable": False,
+                "model_available": False,
+                "status": "disabled" if not self.enabled else "unreachable",
+                "response_time_ms": None,
+            }
 
     async def draft(
         self,
