@@ -8,6 +8,7 @@
   <link rel="icon" href="/ui/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/assets/styles.css">
   <script src="/ui/assets/app.js" defer></script>
+  <script src="/ui/assets/designer.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to workspace</a>
@@ -20,11 +21,12 @@
       <nav aria-label="Primary navigation">
         <button class="nav-item active" data-view="overview"><span>01</span> Overview</button>
         <button class="nav-item" data-view="simulations"><span>02</span> Simulations</button>
-        <a class="nav-item" href="/docs"><span>03</span> API reference</a>
+        <button class="nav-item" data-view="scenarios"><span>03</span> Scenarios</button>
+        <a class="nav-item" href="/docs"><span>04</span> API reference</a>
       </nav>
       <div class="sidebar-foot">
         <div class="runtime-mini"><i id="sidebar-runtime-dot"></i><span id="sidebar-runtime">Connecting</span></div>
-        <small>SimuLoom v0.14.0</small>
+        <small>SimuLoom v0.15.0</small>
       </div>
     </aside>
 
@@ -75,6 +77,23 @@
           </div>
         </div>
       </section>
+
+      <section id="scenarios-view" class="view" aria-label="Visual scenario designer">
+        <div class="designer-shell">
+          <aside class="panel designer-browser">
+            <div class="panel-heading compact"><div><p class="eyebrow">Visual designer</p><h2>Scenarios</h2></div></div>
+            <div class="designer-picker">
+              <label>Simulation<select id="designer-simulation"><option value="">Select a simulation</option></select></label>
+              <div class="designer-picker-actions"><button class="button primary" id="new-scenario-button">New scenario</button><button class="button ghost" id="import-scenario-button">Import</button></div>
+              <input id="import-scenario-file" type="file" accept="application/json,.json" hidden>
+            </div>
+            <div id="designer-scenario-list" class="simulation-list"></div>
+          </aside>
+          <div id="designer-workspace" class="panel designer-workspace">
+            <div class="detail-empty"><span>↗</span><h2>Choose a scenario</h2><p>Select a simulation and scenario, or create a new visual workflow.</p></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -94,6 +113,16 @@
       <label>Bearer or API key<input id="api-key-input" type="password" autocomplete="off" placeholder="Leave blank when authentication is disabled"></label>
       <p class="field-help">Stored only in this browser tab and cleared when the tab closes.</p>
       <div class="dialog-actions"><button class="button danger-text" id="clear-key-button" type="button">Clear key</button><button class="button primary" type="submit">Use for this session</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="scenario-metadata-dialog">
+    <form id="scenario-metadata-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Workflow identity</p><h2>New scenario</h2></div><button class="icon-button" type="button" data-close="scenario-metadata-dialog" aria-label="Close">×</button></div>
+      <label>Scenario ID<input name="scenario_id" required pattern="[a-z0-9][a-z0-9-]{0,79}" placeholder="order-lifecycle"></label>
+      <label>Name<input name="name" required minlength="3" maxlength="100" placeholder="Order lifecycle"></label>
+      <label>Description<input name="description" required maxlength="500" placeholder="Create, pay, and ship an order"></label>
+      <div class="dialog-actions"><button class="button ghost" type="button" data-close="scenario-metadata-dialog">Cancel</button><button class="button primary" type="submit">Open designer</button></div>
     </form>
   </dialog>
 </body>

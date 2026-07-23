@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0 - Visual Scenario Designer
+
+- Added a native SVG scenario graph with automatic state and transition layout.
+- Added form-based state, handler, request matcher, response, and transition editing.
+- Added scenario JSON import/export plus save, compile, deploy, state, and reset controls.
+- Added unreachable-state, terminal-state, and self-transition graph diagnostics.
+- Added approved contract-operation and stored-scenario discovery endpoints.
+- Added viewer read-only behavior and safe text-only SVG label rendering.
+- Added designer API, graph diagnostics, UI asset, and regression coverage.
+
 ## 0.14.0 - Operator Console
 
 - Added a bundled responsive operator console at `/ui` with no frontend build dependency.

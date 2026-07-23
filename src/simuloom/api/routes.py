@@ -19,14 +19,17 @@ from simuloom.models import (
     EvidenceReport,
     ExportResult,
     ImportResult,
+    OperationSummary,
     ProfileConfigRequest,
     ProfileResult,
     ScenarioCompileResult,
     ScenarioDefinition,
     ScenarioDeployResult,
+    ScenarioGraphDiagnostic,
     ScenarioResetAllResult,
     ScenarioResetResult,
     ScenarioRuntimeState,
+    ScenarioSummary,
     ScenarioView,
     SessionView,
     Simulation,
@@ -125,6 +128,16 @@ async def create_simulation_from_contract(
 def get_simulation(simulation_id: str, _principal: ViewerPrincipal) -> dict:
     try:
         return service.get(simulation_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/simulations/{simulation_id}/operations", response_model=list[OperationSummary])
+def simulation_operations(
+    simulation_id: str, _principal: ViewerPrincipal
+) -> list[OperationSummary]:
+    try:
+        return service.contract_operations(simulation_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -289,6 +302,14 @@ async def import_simulation(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/simulations/{simulation_id}/scenarios", response_model=list[ScenarioSummary])
+def list_scenarios(simulation_id: str, _principal: ViewerPrincipal) -> list[ScenarioSummary]:
+    try:
+        return service.list_scenarios(simulation_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.put(
     "/simulations/{simulation_id}/scenarios/{scenario_id}",
     response_model=ScenarioView,
@@ -314,6 +335,23 @@ def configure_scenario(
 def get_scenario(simulation_id: str, scenario_id: str, _principal: ViewerPrincipal) -> ScenarioView:
     try:
         return service.get_scenario(simulation_id, scenario_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/diagnostics",
+    response_model=list[ScenarioGraphDiagnostic],
+)
+def get_scenario_diagnostics(
+    simulation_id: str,
+    scenario_id: str,
+    _principal: ViewerPrincipal,
+) -> list[ScenarioGraphDiagnostic]:
+    try:
+        return service.scenario_diagnostics(simulation_id, scenario_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
