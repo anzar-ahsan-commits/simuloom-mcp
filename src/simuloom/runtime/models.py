@@ -45,6 +45,7 @@ class RuntimeResponseDefinition(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     json_body: Any = None
     delay_ms: int = 0
+    fault: str | None = None
 
 
 class RuntimeMapping(BaseModel):

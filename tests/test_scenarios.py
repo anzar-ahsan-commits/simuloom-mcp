@@ -120,6 +120,19 @@ def test_scenario_compiles_wiremock_transitions_deterministically() -> None:
     assert "newScenarioState" not in first[1]
 
 
+def test_scenario_fault_and_delay_compile_for_wiremock() -> None:
+    payload = definition_payload()
+    payload["states"][0]["handlers"][0]["response"]["delay_ms"] = 125
+    payload["states"][0]["handlers"][0]["response"]["fault"] = "connection-reset"
+    definition = ScenarioDefinition.model_validate(payload)
+
+    mapping = compile_scenario_mappings("orders-1234", "faults", definition)[0]
+
+    assert mapping["response"]["fixedDelayMilliseconds"] == 125
+    assert mapping["response"]["fault"] == "CONNECTION_RESET_BY_PEER"
+    assert "body" not in mapping["response"]
+
+
 class ScenarioWireMock:
     base_url = "http://wiremock.test"
 
@@ -221,6 +234,74 @@ async def test_exact_revision_deployment_history_and_rollback(tmp_path) -> None:
     assert releases[0].source_release == 1
     assert releases[0].deployed_by == "rollback-operator"
     assert wiremock.deployed[0].response.json_body["status"] == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_virtual_clock_applies_timeout_transitions(tmp_path) -> None:
+    from simuloom.core.repository import WorkspaceRepository
+    from simuloom.core.service import SimulationService
+
+    wiremock = ScenarioWireMock()
+    service = SimulationService(WorkspaceRepository(tmp_path), wiremock)  # type: ignore[arg-type]
+    simulation = service.create("Virtual time", contract())
+    payload = definition_payload()
+    payload["states"][0]["timeout_ms"] = 1000
+    payload["states"][0]["timeout_state"] = "PENDING"
+    service.configure_scenario(
+        simulation.id,
+        "order-lifecycle",
+        ScenarioDefinition.model_validate(payload),
+    )
+    await service.deploy_scenario(simulation.id, "order-lifecycle")
+
+    before = await service.advance_scenario_clock(
+        simulation.id, "order-lifecycle", 999, "clock-user"
+    )
+    after = await service.advance_scenario_clock(simulation.id, "order-lifecycle", 1, "clock-user")
+
+    assert before.current_state == "NEW"
+    assert before.elapsed_ms == 999
+    assert after.current_state == "PENDING"
+    assert after.transitions_applied == ["PENDING"]
+    assert after.elapsed_ms == 0
+
+
+@pytest.mark.asyncio
+async def test_inbound_event_transitions_deployed_scenario(tmp_path) -> None:
+    from simuloom.core.repository import WorkspaceRepository
+    from simuloom.core.service import SimulationService
+
+    service = SimulationService(WorkspaceRepository(tmp_path), ScenarioWireMock())  # type: ignore[arg-type]
+    simulation = service.create("Event orchestration", contract())
+    payload = definition_payload()
+    payload["states"][0]["event_transitions"] = [
+        {"topic": "orders.accepted", "new_state": "PENDING"}
+    ]
+    service.configure_scenario(
+        simulation.id,
+        "order-lifecycle",
+        ScenarioDefinition.model_validate(payload),
+    )
+    await service.deploy_scenario(simulation.id, "order-lifecycle")
+
+    result = await service.publish_scenario_event(
+        simulation.id, "orders.accepted", {"synthetic": True}, "webhook"
+    )
+    state = await service.scenario_state(simulation.id, "order-lifecycle")
+
+    assert result.transitioned_scenarios == {"order-lifecycle": "PENDING"}
+    assert state.current_state == "PENDING"
+    assert service.repository.read_json(simulation.id, f"events/{result.event_id}.json")[
+        "payload"
+    ] == {"synthetic": True}
+
+    with pytest.raises(ValueError, match="1 MiB"):
+        await service.publish_scenario_event(
+            simulation.id,
+            "orders.accepted",
+            "x" * (1024 * 1024 + 1),
+            "webhook",
+        )
 
 
 def test_scenario_bundle_round_trip(tmp_path) -> None:

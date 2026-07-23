@@ -13,6 +13,8 @@ const designer = {
   etag: null,
   savedSnapshot: null,
   releases: [],
+  reviews: [],
+  releasePolicy: { require_approval: false, block_breaking_changes: false },
 };
 
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -73,10 +75,12 @@ function renderDesignerEmpty() {
 async function loadScenario(scenarioId, force = false) {
   if (!force && scenarioId !== designer.scenarioId && !confirmDesignerDiscard()) return;
   try {
-    const [view, diagnostics, releases] = await Promise.all([
+    const [view, diagnostics, releases, reviews, releasePolicy] = await Promise.all([
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}`),
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}/diagnostics`),
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}/releases`),
+      api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}/reviews`),
+      api(`/simulations/${designer.simulationId}/release-policy`),
     ]);
     designer.scenarioId = scenarioId;
     designer.definition = structuredClone(view.definition);
@@ -87,6 +91,8 @@ async function loadScenario(scenarioId, force = false) {
     designer.etag = view.etag;
     designer.savedSnapshot = JSON.stringify(view.definition);
     designer.releases = releases;
+    designer.reviews = reviews;
+    designer.releasePolicy = releasePolicy;
     renderDesignerScenarioList();
     renderDesigner();
   } catch (error) {
@@ -160,6 +166,8 @@ function renderDesigner() {
     <div class="designer-toolbar-title"><p class="eyebrow">${escapeHtml(designer.scenarioId)}${designer.revision ? ` · revision ${designer.revision}` : " · unsaved"}${designer.releases.length ? ` · release ${designer.releases[0].release_number} runs revision ${designer.releases[0].revision}` : " · not deployed"}${designerIsDirty() ? " · modified" : ""}${readOnly ? " · read only" : ""}</p><h2>${escapeHtml(definition.name)}</h2></div>
     <button class="button ghost" data-designer-action="history">History</button>
     <button class="button ghost" data-designer-action="releases">Releases</button>
+    <button class="button ghost" data-designer-action="reviews">Reviews</button>
+    <button class="button ghost" data-designer-action="automate">Automate</button>
     <button class="button ghost" data-designer-action="export">Export</button>
     <button class="button" data-designer-action="save" data-designer-mutate>Save</button>
     <button class="button" data-designer-action="compile" data-designer-mutate>Compile</button>
@@ -368,6 +376,8 @@ async function runDesignerAction(button) {
     if (action === "save") result = await saveDesignerScenario(base);
     if (action === "history") return await showScenarioHistory(base);
     if (action === "releases") return await showScenarioReleases(base);
+    if (action === "reviews") return await showScenarioReviews(base);
+    if (action === "automate") return await runDesignerAutomation(base);
     if (action === "compile") result = await api(`${base}/compile`, { method: "POST" });
     if (action === "deploy") result = await api(`${base}/deploy`, { method: "POST" });
     if (action === "runtime") result = await api(`${base}/state`);
@@ -481,6 +491,40 @@ async function rollbackDesignerRelease(base, releaseNumber) {
   designer.releases = await api(`${base}/releases`);
   renderDesigner();
   notify(`Rollback recorded as release ${result.release_number}`);
+}
+
+async function showScenarioReviews(base) {
+  designer.reviews = await api(`${base}/reviews`);
+  const drawer = $("#designer-result");
+  $("strong", drawer).textContent = `Release reviews${designer.releasePolicy.require_approval ? " · approval required" : " · advisory"}`;
+  $("pre", drawer).textContent = designer.reviews.map((review) => `Review ${review.review_number} · revision ${review.revision} · ${review.status} · ${review.requested_by}${review.decided_by ? ` → ${review.decided_by}` : ""}`).join("\n") || "No reviews requested";
+  drawer.hidden = false;
+  if (state.role !== "viewer") {
+    const command = window.prompt("Optional: 'request 2', 'approve 1', or 'reject 1'.");
+    const [action, number] = (command || "").trim().split(/\s+/);
+    if (action === "request") await api(`${base}/history/${Number(number)}/review`, { method: "POST", body: JSON.stringify({ note: "Requested in designer" }) });
+    if (state.role === "admin" && ["approve", "reject"].includes(action)) await api(`${base}/reviews/${Number(number)}/${action}`, { method: "POST", body: JSON.stringify({ note: `Decision in designer: ${action}` }) });
+    if (command) { designer.reviews = await api(`${base}/reviews`); renderDesigner(); notify("Review workflow updated"); }
+  }
+  return designer.reviews;
+}
+
+async function runDesignerAutomation(base) {
+  const command = window.prompt("Enter 'clock 1000', 'event topic.name', 'template template-id', or 'promote simulation-id'.");
+  const [action, value] = (command || "").trim().split(/\s+/, 2);
+  if (!action) return null;
+  let result;
+  if (action === "clock") result = await api(`${base}/clock/advance`, { method: "POST", body: JSON.stringify({ milliseconds: Number(value) }) });
+  if (action === "event") result = await api(`/simulations/${designer.simulationId}/events`, { method: "POST", body: JSON.stringify({ topic: value, payload: { synthetic: true, source: "designer" } }) });
+  if (action === "template") result = await api(`${base}/history/${designer.revision}/template`, { method: "POST", body: JSON.stringify({ template_id: value, name: `${designer.definition.name} template`, description: designer.definition.description }) });
+  if (action === "promote") result = await api(`${base}/history/${designer.revision}/promote`, { method: "POST", body: JSON.stringify({ target_simulation_id: value }) });
+  if (!result) return notify("Unknown automation command", true);
+  const drawer = $("#designer-result");
+  $("strong", drawer).textContent = `${action} result`;
+  $("pre", drawer).textContent = JSON.stringify(result, null, 2);
+  drawer.hidden = false;
+  notify(`Scenario ${action} completed`);
+  return result;
 }
 
 async function restoreDesignerRevision(base, revision) {

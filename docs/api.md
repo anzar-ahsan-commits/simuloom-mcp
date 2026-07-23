@@ -1,6 +1,7 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.17.0 adds semantic revision comparison and immutable scenario releases.
+SimuLoom v0.27.0 includes governed releases, promotion, templates, deterministic orchestration,
+observability, and bounded workspace backup/restore.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -18,6 +19,18 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases` | viewer | List immutable deployment records |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}` | viewer | Inspect one release |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}/rollback` | operator | Redeploy a release as a new release |
+| GET/PUT | `/api/v1/simulations/{simulation_id}/release-policy` | viewer/admin | Read or configure approval gates |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/review` | operator | Request revision review |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/reviews` | viewer | List review evidence |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/reviews/{review}/approve` | admin | Approve a pending review |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/reviews/{review}/reject` | admin | Reject a pending review |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/promote` | operator | Promote into another simulation |
+| GET | `/api/v1/scenario-templates` | viewer | List reusable templates |
+| POST | `/api/v1/scenario-templates/{template_id}/instantiate` | operator | Create a parameterized instance |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/clock/advance` | operator | Advance virtual time |
+| POST | `/api/v1/simulations/{simulation_id}/events` | operator | Publish an inbound orchestration event |
+| GET | `/api/v1/metrics` | viewer | Prometheus counters |
+| GET/POST | `/api/v1/workspace/backup`, `/api/v1/workspace/restore` | admin | Backup or merge-restore workspace |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/state` | viewer | Read live WireMock state |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/compile` | operator | Generate mappings |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/deploy` | operator | Compile, deploy, and initialize |
@@ -124,6 +137,40 @@ curl -sS -X POST "$BASE/releases/1/rollback" | jq .
 Rollback does not mutate an earlier release. It recompiles and deploys the pinned revision, then
 records the result as the next release with `source_release` identifying the rollback source.
 The existing `/deploy` endpoint remains compatible and deploys the current head revision.
+
+## Governed orchestration workflow
+
+Approval is disabled by default for backward compatibility. Admins may require an approved,
+ETag-pinned review and optionally block semantic breaking changes. Previously deployed releases
+remain rollback-safe. Promotion and template instantiation always revalidate the target contract.
+
+```bash
+SIM=http://localhost:8000/api/v1/simulations/$SIMULATION_ID
+SCENARIO=$SIM/scenarios/order-lifecycle
+
+curl -sS -X PUT "$SIM/release-policy" -H 'Content-Type: application/json' \
+  -d '{"require_approval":true,"block_breaking_changes":false}' | jq .
+curl -sS -X POST "$SCENARIO/history/1/review" -H 'Content-Type: application/json' \
+  -d '{"note":"ready for deployment"}' | jq .
+curl -sS -X POST "$SCENARIO/reviews/1/approve" -H 'Content-Type: application/json' \
+  -d '{"note":"approved"}' | jq .
+curl -sS -X POST "$SCENARIO/deploy" | jq .
+
+curl -sS -X POST "$SCENARIO/clock/advance" -H 'Content-Type: application/json' \
+  -d '{"milliseconds":1000}' | jq .
+curl -sS -X POST "$SIM/events" -H 'Content-Type: application/json' \
+  -d '{"topic":"orders.external-created","payload":{"synthetic":true}}' | jq .
+```
+
+Templates may declare at most 50 parameters. Instantiation rejects missing or extra values.
+Event topics are bounded, event payloads are limited to 1 MiB, and orchestration accepts inbound
+events only—SimuLoom does not fetch arbitrary webhook URLs. Scenario response faults support
+`empty-response`, `connection-reset`, and `malformed-response`, plus deterministic delays.
+
+Metrics are available at `/api/v1/metrics` (Prometheus) and `/api/v1/metrics/json`. Admin-only
+workspace backups are deterministic ZIP files capped at 50 MiB/10,000 files. Restore validates
+all entries before writing, rejects symlinks and traversal, and never overwrites existing files.
+Active audit logs and runtime databases are excluded because they require coordinated snapshots.
 
 ## Scenario validation
 

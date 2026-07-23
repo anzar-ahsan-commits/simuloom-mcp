@@ -148,6 +148,15 @@ def compile_scenario_mappings(
                     "simuloomHandler": handler.name,
                 },
             }
+            if handler.response.delay_ms:
+                mapping["response"]["fixedDelayMilliseconds"] = handler.response.delay_ms
+            if handler.response.fault:
+                mapping["response"].pop("body", None)
+                mapping["response"]["fault"] = {
+                    "empty-response": "EMPTY_RESPONSE",
+                    "connection-reset": "CONNECTION_RESET_BY_PEER",
+                    "malformed-response": "MALFORMED_RESPONSE_CHUNK",
+                }[handler.response.fault]
             if handler.new_state is not None:
                 mapping["newScenarioState"] = handler.new_state
             mappings.append(mapping)

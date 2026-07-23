@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import uuid
 from pathlib import Path
 from typing import Any
 
+from simuloom.core.audit import AuditLog
 from simuloom.core.behavior import SUPPORTED_PROFILES, apply_behavior_profile
 from simuloom.core.cases import compile_contract_case_mappings, generate_contract_cases
 from simuloom.core.compiler import (
@@ -28,17 +31,21 @@ from simuloom.core.manifest import (
 from simuloom.core.manifest import (
     export_bundle as create_export_bundle,
 )
+from simuloom.core.metrics import MetricsRegistry
 from simuloom.core.pairwise import compile_pairwise_mappings, generate_pairwise_cases
 from simuloom.core.repository import WorkspaceRepository
+from simuloom.core.scenario_approvals import ScenarioApprovalError, ScenarioApprovalStore
 from simuloom.core.scenario_comparison import compare_scenario_revisions
 from simuloom.core.scenario_graph import scenario_graph_diagnostics
 from simuloom.core.scenario_releases import ScenarioReleaseStore
 from simuloom.core.scenario_revisions import ScenarioRevisionStore
+from simuloom.core.scenario_templates import ScenarioTemplateStore
 from simuloom.core.scenarios import (
     compile_scenario_mappings,
     validate_scenario_contract,
     wiremock_scenario_name,
 )
+from simuloom.core.workspace_backup import create_workspace_backup, restore_workspace_backup
 from simuloom.models import (
     CompileResult,
     ContractSummary,
@@ -50,23 +57,30 @@ from simuloom.models import (
     ImportResult,
     OperationSummary,
     ProfileResult,
+    ScenarioClockView,
     ScenarioCompileResult,
     ScenarioDefinition,
     ScenarioDeployResult,
+    ScenarioEventResult,
     ScenarioGraphDiagnostic,
+    ScenarioPromotionResult,
     ScenarioRelease,
+    ScenarioReleasePolicy,
     ScenarioResetAllResult,
     ScenarioResetResult,
+    ScenarioReview,
     ScenarioRevision,
     ScenarioRevisionComparison,
     ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
+    ScenarioTemplate,
     ScenarioView,
     Simulation,
     SimulationSummary,
     ValidationPlan,
     ValidationPlanCase,
+    WorkspaceRestoreResult,
 )
 from simuloom.runtime.base import RuntimeAdapter
 from simuloom.runtime.translation import from_wiremock_mappings
@@ -79,6 +93,10 @@ class SimulationService:
         self.wiremock = runtime  # Backward-compatible internal alias for integrations.
         self.revisions = ScenarioRevisionStore(repository)
         self.releases = ScenarioReleaseStore(repository)
+        self.approvals = ScenarioApprovalStore(repository)
+        self.templates = ScenarioTemplateStore(repository)
+        self.domain_audit = AuditLog(repository.root / "audit" / "domain-events.jsonl")
+        self.metrics = MetricsRegistry()
 
     def analyze(self, contract: dict[str, Any]) -> ContractSummary:
         return analyze_contract(contract)
@@ -137,6 +155,7 @@ class SimulationService:
             actor,
             expected_etag,
         )
+        self.metrics.increment("scenario_saves_total")
         return ScenarioView(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
@@ -208,6 +227,188 @@ class SimulationService:
             before.definition,
             to_revision,
             after.definition,
+        )
+
+    def scenario_release_policy(self, simulation_id: str) -> ScenarioReleasePolicy:
+        self._require_simulation(simulation_id)
+        return self.approvals.policy(simulation_id)
+
+    def promote_scenario_revision(
+        self,
+        source_simulation_id: str,
+        source_scenario_id: str,
+        source_revision: int,
+        target_simulation_id: str,
+        target_scenario_id: str | None,
+        actor: str,
+        expected_target_etag: str | None = None,
+    ) -> ScenarioPromotionResult:
+        source = self.scenario_revision(source_simulation_id, source_scenario_id, source_revision)
+        selected_target_id = target_scenario_id or source_scenario_id
+        target = self.configure_scenario(
+            target_simulation_id,
+            selected_target_id,
+            source.definition,
+            actor=actor,
+            expected_etag=expected_target_etag,
+        )
+        self._record_domain_event(
+            actor,
+            "scenario-promoted",
+            target_simulation_id,
+            selected_target_id,
+            f"from-{source_simulation_id}-revision-{source_revision}",
+        )
+        self.metrics.increment("scenario_promotions_total")
+        return ScenarioPromotionResult(
+            source_simulation_id=source_simulation_id,
+            source_scenario_id=source_scenario_id,
+            source_revision=source_revision,
+            target_simulation_id=target_simulation_id,
+            target_scenario_id=selected_target_id,
+            target_revision=target.revision,
+            target_etag=target.etag,
+            promoted_by=actor,
+        )
+
+    def create_scenario_template(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        revision: int,
+        template_id: str,
+        name: str,
+        description: str,
+        actor: str,
+        parameterize: dict[str, str] | None = None,
+    ) -> ScenarioTemplate:
+        source = self.scenario_revision(simulation_id, scenario_id, revision)
+        template = self.templates.create(
+            template_id, name, description, source, actor, parameterize
+        )
+        self._record_domain_event(
+            actor, "template-created", simulation_id, scenario_id, template_id
+        )
+        return template
+
+    def scenario_templates(self) -> list[ScenarioTemplate]:
+        return self.templates.list()
+
+    def get_scenario_template(self, template_id: str) -> ScenarioTemplate:
+        return self.templates.get(template_id)
+
+    def instantiate_scenario_template(
+        self,
+        template_id: str,
+        simulation_id: str,
+        scenario_id: str,
+        actor: str,
+        expected_etag: str | None = None,
+        parameters: dict[str, str] | None = None,
+    ) -> ScenarioView:
+        self.templates.get(template_id)
+        definition = self.templates.render(template_id, parameters or {})
+        view = self.configure_scenario(
+            simulation_id,
+            scenario_id,
+            definition,
+            actor,
+            expected_etag,
+        )
+        self._record_domain_event(
+            actor, "template-instantiated", simulation_id, scenario_id, template_id
+        )
+        self.metrics.increment("template_instantiations_total")
+        return view
+
+    def update_scenario_release_policy(
+        self,
+        simulation_id: str,
+        require_approval: bool,
+        block_breaking_changes: bool,
+        actor: str,
+    ) -> ScenarioReleasePolicy:
+        self._require_simulation(simulation_id)
+        policy = self.approvals.update_policy(
+            simulation_id, require_approval, block_breaking_changes, actor
+        )
+        self._record_domain_event(actor, "policy-update", simulation_id)
+        return policy
+
+    def request_scenario_review(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        revision: int,
+        actor: str,
+        note: str = "",
+    ) -> ScenarioReview:
+        selected = self.scenario_revision(simulation_id, scenario_id, revision)
+        review = self.approvals.request(selected, actor, note)
+        self._record_domain_event(
+            actor,
+            "review-request",
+            simulation_id,
+            scenario_id,
+            f"revision-{revision}",
+        )
+        self.metrics.increment("review_requests_total")
+        return review
+
+    def scenario_reviews(self, simulation_id: str, scenario_id: str) -> list[ScenarioReview]:
+        self.get_scenario(simulation_id, scenario_id)
+        return self.approvals.list(simulation_id, scenario_id)
+
+    def decide_scenario_review(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        review_number: int,
+        approved: bool,
+        actor: str,
+        note: str = "",
+    ) -> ScenarioReview:
+        self.get_scenario(simulation_id, scenario_id)
+        review = self.approvals.decide(
+            simulation_id, scenario_id, review_number, approved, actor, note
+        )
+        self._record_domain_event(
+            actor,
+            "review-approved" if approved else "review-rejected",
+            simulation_id,
+            scenario_id,
+            f"review-{review_number}",
+        )
+        self.metrics.increment("review_approvals_total" if approved else "review_rejections_total")
+        return review
+
+    def domain_audit_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.domain_audit.read_events(limit)
+
+    def verify_domain_audit(self) -> dict[str, Any]:
+        return self.domain_audit.verify()
+
+    def _record_domain_event(
+        self,
+        actor: str,
+        action: str,
+        simulation_id: str,
+        scenario_id: str | None = None,
+        target: str | None = None,
+    ) -> None:
+        path = "/".join(
+            item for item in ["domain", simulation_id, scenario_id, target, action] if item
+        )
+        self.domain_audit.append(
+            request_id=str(uuid.uuid4()),
+            subject=actor,
+            role="domain",
+            key_id=None,
+            method="EVENT",
+            path=path,
+            status_code=200,
+            duration_ms=0,
+            outcome="recorded",
         )
 
     def list_scenarios(self, simulation_id: str) -> list[ScenarioSummary]:
@@ -286,6 +487,7 @@ class SimulationService:
     ) -> ScenarioDeployResult:
         view = self.get_scenario(simulation_id, scenario_id)
         selected = self.scenario_revision(simulation_id, scenario_id, revision or view.revision)
+        self._require_scenario_deployable(selected, source_release is not None)
         contract = self.repository.read_json(simulation_id, "contract.json")
         validate_scenario_contract(contract, selected.definition)
         mappings = compile_scenario_mappings(simulation_id, scenario_id, selected.definition)
@@ -300,6 +502,11 @@ class SimulationService:
             simulation_id,
         )
         release = self.releases.record(selected, mappings, actor, source_release=source_release)
+        self.metrics.increment(
+            "scenario_rollbacks_total"
+            if source_release is not None
+            else "scenario_deployments_total"
+        )
         return ScenarioDeployResult(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
@@ -360,6 +567,112 @@ class SimulationService:
             current_state=definition.reset_state,
             status="reset",
         )
+
+    async def advance_scenario_clock(
+        self, simulation_id: str, scenario_id: str, milliseconds: int, actor: str
+    ) -> ScenarioClockView:
+        view = self.get_scenario(simulation_id, scenario_id)
+        runtime = await self.scenario_state(simulation_id, scenario_id)
+        if not runtime.deployed or runtime.current_state is None:
+            raise RuntimeError("Deploy this scenario before advancing its virtual clock")
+        try:
+            clock = self.repository.read_json(simulation_id, f"scenarios/clocks/{scenario_id}.json")
+        except FileNotFoundError:
+            clock = {"state": runtime.current_state, "elapsed_ms": 0}
+        if clock.get("state") != runtime.current_state:
+            clock = {"state": runtime.current_state, "elapsed_ms": 0}
+        elapsed = int(clock.get("elapsed_ms", 0)) + milliseconds
+        current = runtime.current_state
+        transitions: list[str] = []
+        definition = view.definition
+        releases = self.releases.list(simulation_id, scenario_id)
+        if releases:
+            definition = self.scenario_revision(
+                simulation_id, scenario_id, releases[0].revision
+            ).definition
+        states = {state.name: state for state in definition.states}
+        while (state := states[current]).timeout_ms and elapsed >= state.timeout_ms:
+            elapsed -= state.timeout_ms
+            current = state.timeout_state or current
+            transitions.append(current)
+            if len(transitions) > len(states):
+                raise RuntimeError("Virtual clock timeout cycle exceeded one full graph traversal")
+        await self.runtime.set_scenario_state(
+            wiremock_scenario_name(simulation_id, scenario_id), current
+        )
+        self.repository.write_json(
+            simulation_id,
+            f"scenarios/clocks/{scenario_id}.json",
+            {"state": current, "elapsed_ms": elapsed},
+        )
+        self._record_domain_event(actor, "clock-advanced", simulation_id, scenario_id)
+        self.metrics.increment("virtual_clock_advances_total")
+        return ScenarioClockView(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            elapsed_ms=elapsed,
+            current_state=current,
+            transitions_applied=transitions,
+        )
+
+    async def publish_scenario_event(
+        self, simulation_id: str, topic: str, payload: Any, actor: str
+    ) -> ScenarioEventResult:
+        self._require_simulation(simulation_id)
+        if len(json.dumps(payload, separators=(",", ":")).encode()) > 1024 * 1024:
+            raise ValueError("Scenario event payload cannot exceed 1 MiB")
+        transitioned: dict[str, str] = {}
+        event_id = str(uuid.uuid4())
+        for scenario_id in self.repository.read_scenarios(simulation_id):
+            runtime = await self.scenario_state(simulation_id, scenario_id)
+            if not runtime.deployed or runtime.current_state is None:
+                continue
+            releases = self.releases.list(simulation_id, scenario_id)
+            view = self.get_scenario(simulation_id, scenario_id)
+            definition = (
+                self.scenario_revision(simulation_id, scenario_id, releases[0].revision).definition
+                if releases
+                else view.definition
+            )
+            state = next(item for item in definition.states if item.name == runtime.current_state)
+            transition = next(
+                (item for item in state.event_transitions if item.topic == topic), None
+            )
+            if transition is None:
+                continue
+            await self.runtime.set_scenario_state(
+                wiremock_scenario_name(simulation_id, scenario_id), transition.new_state
+            )
+            transitioned[scenario_id] = transition.new_state
+        self.repository.write_json(
+            simulation_id,
+            f"events/{event_id}.json",
+            {"event_id": event_id, "topic": topic, "payload": payload, "actor": actor},
+        )
+        self._record_domain_event(actor, "event-published", simulation_id, target=topic)
+        self.metrics.increment("scenario_events_total")
+        return ScenarioEventResult(
+            simulation_id=simulation_id,
+            topic=topic,
+            transitioned_scenarios=transitioned,
+            event_id=event_id,
+        )
+
+    def metrics_snapshot(self) -> dict[str, int]:
+        return self.metrics.snapshot()
+
+    def prometheus_metrics(self) -> str:
+        return self.metrics.prometheus()
+
+    def workspace_backup(self) -> bytes:
+        return create_workspace_backup(self.repository.root)
+
+    def restore_workspace(self, data: bytes, actor: str) -> WorkspaceRestoreResult:
+        result = restore_workspace_backup(self.repository.root, data)
+        self.domain_audit = AuditLog(self.repository.root / "audit" / "domain-events.jsonl")
+        self._record_domain_event(actor, "workspace-restored", "workspace")
+        self.metrics.increment("workspace_restores_total")
+        return result
 
     async def reset_all_scenarios(self) -> ScenarioResetAllResult:
         await self.runtime.reset_all_scenarios()
@@ -574,6 +887,10 @@ class SimulationService:
         except FileNotFoundError:
             self.compile(simulation_id)
             mappings = self.repository.read_json(simulation_id, "mappings/mappings.json")
+        for scenario_id in self.repository.read_scenarios(simulation_id):
+            view = self.get_scenario(simulation_id, scenario_id)
+            selected = self.scenario_revision(simulation_id, scenario_id, view.revision)
+            self._require_scenario_deployable(selected, False)
         deployed = await self.runtime.deploy(
             from_wiremock_mappings(mappings), reset_existing, simulation_id
         )
@@ -596,6 +913,24 @@ class SimulationService:
             deployed_mappings=deployed,
             status="deployed",
         )
+
+    def _require_scenario_deployable(self, selected: ScenarioRevision, rollback: bool) -> None:
+        if rollback:
+            return
+        policy = self.approvals.policy(selected.simulation_id)
+        if policy.block_breaking_changes and selected.revision > 1:
+            comparison = self.compare_scenario_revisions(
+                selected.simulation_id,
+                selected.scenario_id,
+                selected.revision - 1,
+                selected.revision,
+            )
+            if comparison.breaking_change_count:
+                raise ScenarioApprovalError(
+                    f"Scenario revision {selected.revision} contains "
+                    f"{comparison.breaking_change_count} blocked breaking changes"
+                )
+        self.approvals.require_deployable(selected)
 
     async def validate(
         self,

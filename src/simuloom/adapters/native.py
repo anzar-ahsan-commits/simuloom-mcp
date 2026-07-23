@@ -145,6 +145,14 @@ class NativeRuntimeAdapter:
                 body = deepcopy(selected.response.json_body)
                 status = selected.response.status
                 response_headers = dict(selected.response.headers)
+                if selected.response.fault:
+                    body = {
+                        "code": "INJECTED_FAULT",
+                        "fault": selected.response.fault,
+                        "synthetic": True,
+                    }
+                    status = 503
+                    response_headers["x-simuloom-fault"] = selected.response.fault
             self.store.append_event(
                 simulation_id,
                 {
