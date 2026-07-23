@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.0 - Safe Scenario Editing
+
+- Added immutable scenario revision history with author and timestamp metadata.
+- Added strong ETags and optional `If-Match` optimistic concurrency checks for saves and
+  restores; stale editors receive a structured `409` response.
+- Added REST and MCP history inspection and restore operations. Restore creates a new revision
+  and never deletes earlier history.
+- Added designer revision indicators, unsaved-change warnings, history inspection, conditional
+  saves, and explicit reload-or-overwrite conflict handling.
+- Preserved existing clients and lazily adopts pre-v0.16 scenarios as revision 1.
+
 ## 0.15.0 - Visual Scenario Designer
 
 - Added a native SVG scenario graph with automatic state and transition layout.

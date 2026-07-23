@@ -338,6 +338,26 @@ class ScenarioView(BaseModel):
     simulation_id: str
     scenario_id: str
     definition: ScenarioDefinition
+    revision: int = 1
+    etag: str = ""
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class ScenarioRevisionSummary(BaseModel):
+    revision: int
+    etag: str
+    created_at: datetime
+    created_by: str
+    name: str
+    state_count: int
+    handler_count: int
+
+
+class ScenarioRevision(ScenarioRevisionSummary):
+    simulation_id: str
+    scenario_id: str
+    definition: ScenarioDefinition
 
 
 class ScenarioGraphDiagnostic(BaseModel):

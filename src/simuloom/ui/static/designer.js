@@ -9,6 +9,9 @@ const designer = {
   stateIndex: 0,
   handlerIndex: 0,
   diagnostics: [],
+  revision: null,
+  etag: null,
+  savedSnapshot: null,
 };
 
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -30,6 +33,10 @@ function refreshDesignerSimulations() {
 }
 
 async function chooseDesignerSimulation(simulationId) {
+  if (!confirmDesignerDiscard()) {
+    $("#designer-simulation").value = designer.simulationId;
+    return;
+  }
   designer.simulationId = simulationId;
   designer.scenarioId = "";
   designer.definition = null;
@@ -62,7 +69,8 @@ function renderDesignerEmpty() {
   $("#designer-workspace").innerHTML = '<div class="detail-empty"><span>↗</span><h2>Choose a scenario</h2><p>Select a simulation and scenario, or create a new visual workflow.</p></div>';
 }
 
-async function loadScenario(scenarioId) {
+async function loadScenario(scenarioId, force = false) {
+  if (!force && scenarioId !== designer.scenarioId && !confirmDesignerDiscard()) return;
   try {
     const [view, diagnostics] = await Promise.all([
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}`),
@@ -73,6 +81,9 @@ async function loadScenario(scenarioId) {
     designer.stateIndex = 0;
     designer.handlerIndex = 0;
     designer.diagnostics = diagnostics;
+    designer.revision = view.revision;
+    designer.etag = view.etag;
+    designer.savedSnapshot = JSON.stringify(view.definition);
     renderDesignerScenarioList();
     renderDesigner();
   } catch (error) {
@@ -105,6 +116,9 @@ function createScenarioDraft(metadata) {
   designer.stateIndex = 0;
   designer.handlerIndex = 0;
   designer.diagnostics = [];
+  designer.revision = null;
+  designer.etag = null;
+  designer.savedSnapshot = null;
   renderDesignerScenarioList();
   renderDesigner();
 }
@@ -139,7 +153,8 @@ function renderDesigner() {
   const definition = designer.definition;
   const readOnly = state.role === "viewer";
   $("#designer-workspace").innerHTML = `<div class="designer-toolbar">
-    <div class="designer-toolbar-title"><p class="eyebrow">${escapeHtml(designer.scenarioId)}${readOnly ? " · read only" : ""}</p><h2>${escapeHtml(definition.name)}</h2></div>
+    <div class="designer-toolbar-title"><p class="eyebrow">${escapeHtml(designer.scenarioId)}${designer.revision ? ` · revision ${designer.revision}` : " · unsaved"}${designerIsDirty() ? " · modified" : ""}${readOnly ? " · read only" : ""}</p><h2>${escapeHtml(definition.name)}</h2></div>
+    <button class="button ghost" data-designer-action="history">History</button>
     <button class="button ghost" data-designer-action="export">Export</button>
     <button class="button" data-designer-action="save" data-designer-mutate>Save</button>
     <button class="button" data-designer-action="compile" data-designer-mutate>Compile</button>
@@ -345,7 +360,8 @@ async function runDesignerAction(button) {
   setBusy(button, true);
   try {
     let result;
-    if (action === "save") result = await api(base, { method: "PUT", body: JSON.stringify(designer.definition) });
+    if (action === "save") result = await saveDesignerScenario(base);
+    if (action === "history") return await showScenarioHistory(base);
     if (action === "compile") result = await api(`${base}/compile`, { method: "POST" });
     if (action === "deploy") result = await api(`${base}/deploy`, { method: "POST" });
     if (action === "runtime") result = await api(`${base}/state`);
@@ -356,12 +372,75 @@ async function runDesignerAction(button) {
     drawer.hidden = false;
     notify(`Scenario ${action} completed`);
     if (action === "save") {
+      designer.revision = result.revision;
+      designer.etag = result.etag;
+      designer.savedSnapshot = JSON.stringify(result.definition);
       designer.diagnostics = await api(`${base}/diagnostics`);
       designer.scenarios = await api(`/simulations/${designer.simulationId}/scenarios`);
-      renderDesignerScenarioList(); renderGraph();
+      renderDesignerScenarioList(); renderDesigner();
     }
-  } catch (error) { notify(error.message, true); }
+  } catch (error) {
+    if (action === "save" && error.status === 409) await resolveDesignerConflict(base, error);
+    else notify(error.message, true);
+  }
   finally { setBusy(button, false); }
+}
+
+function designerIsDirty() {
+  return Boolean(designer.definition) && JSON.stringify(designer.definition) !== designer.savedSnapshot;
+}
+
+function confirmDesignerDiscard() {
+  return !designerIsDirty() || window.confirm("Discard your unsaved scenario changes?");
+}
+
+async function saveDesignerScenario(base, force = false) {
+  const headers = {};
+  if (designer.etag && !force) headers["If-Match"] = `"${designer.etag}"`;
+  return api(base, { method: "PUT", headers, body: JSON.stringify(designer.definition) });
+}
+
+async function resolveDesignerConflict(base, error) {
+  const revision = error.detail?.current_revision;
+  const overwrite = window.confirm(`This scenario changed on the server${revision ? ` (revision ${revision})` : ""}.\n\nOK: overwrite it with your draft.\nCancel: reload the latest version.`);
+  if (overwrite) {
+    const result = await saveDesignerScenario(base, true);
+    designer.revision = result.revision;
+    designer.etag = result.etag;
+    designer.definition = structuredClone(result.definition);
+    designer.savedSnapshot = JSON.stringify(result.definition);
+    renderDesigner();
+    notify("Conflict resolved by creating a new revision");
+  } else {
+    await loadScenario(designer.scenarioId, true);
+    notify("Latest server revision loaded");
+  }
+}
+
+async function showScenarioHistory(base) {
+  const history = await api(`${base}/history`);
+  const drawer = $("#designer-result");
+  $("strong", drawer).textContent = "Revision history";
+  $("pre", drawer).textContent = history.map((item) => `Revision ${item.revision} · ${item.created_by} · ${new Date(item.created_at).toLocaleString()} · ${item.state_count} states`).join("\n");
+  drawer.hidden = false;
+  if (state.role !== "viewer" && history.length > 1) {
+    const requested = window.prompt("Enter a revision number to restore, or leave blank to only inspect history:");
+    if (requested) await restoreDesignerRevision(base, Number(requested));
+  }
+  return history;
+}
+
+async function restoreDesignerRevision(base, revision) {
+  if (!Number.isInteger(revision) || revision < 1) return notify("Revision must be a positive number", true);
+  if (!window.confirm(`Restore revision ${revision} as a new revision?`)) return;
+  const headers = designer.etag ? { "If-Match": `"${designer.etag}"` } : {};
+  const result = await api(`${base}/history/${revision}/restore`, { method: "POST", headers });
+  designer.revision = result.revision;
+  designer.etag = result.etag;
+  designer.definition = structuredClone(result.definition);
+  designer.savedSnapshot = JSON.stringify(result.definition);
+  renderDesigner();
+  notify(`Revision ${revision} restored as revision ${result.revision}`);
 }
 
 function exportScenario() {
@@ -372,21 +451,30 @@ function exportScenario() {
 
 async function importScenario(file) {
   if (!designer.simulationId) return notify("Select a simulation before importing", true);
+  if (!confirmDesignerDiscard()) return;
   try {
     const definition = JSON.parse(await file.text());
     if (!definition.name || !Array.isArray(definition.states)) throw new Error("Scenario JSON must contain name and states");
     const id = file.name.replace(/\.scenario\.json$|\.json$/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
     designer.scenarioId = id || "imported-scenario";
-    designer.definition = definition; designer.stateIndex = 0; designer.handlerIndex = 0; renderDesigner();
+    designer.definition = definition; designer.revision = null; designer.etag = null;
+    designer.savedSnapshot = null; designer.stateIndex = 0; designer.handlerIndex = 0; renderDesigner();
     notify("Scenario imported as an unsaved draft");
   } catch (error) { notify(`Import failed: ${error.message}`, true); }
 }
+
+window.addEventListener("beforeunload", (event) => {
+  if (!designerIsDirty()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 
 function initializeDesigner() {
   $("#designer-simulation").addEventListener("change", (event) => chooseDesignerSimulation(event.target.value));
   $("#new-scenario-button").addEventListener("click", () => {
     if (!designer.simulationId) return notify("Select a simulation first", true);
     if (state.role === "viewer") return notify("Operator role required", true);
+    if (!confirmDesignerDiscard()) return;
     $("#scenario-metadata-dialog").showModal();
   });
   $("#import-scenario-button").addEventListener("click", () => $("#import-scenario-file").click());

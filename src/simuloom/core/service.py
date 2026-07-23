@@ -31,6 +31,7 @@ from simuloom.core.manifest import (
 from simuloom.core.pairwise import compile_pairwise_mappings, generate_pairwise_cases
 from simuloom.core.repository import WorkspaceRepository
 from simuloom.core.scenario_graph import scenario_graph_diagnostics
+from simuloom.core.scenario_revisions import ScenarioRevisionStore
 from simuloom.core.scenarios import (
     compile_scenario_mappings,
     validate_scenario_contract,
@@ -53,6 +54,8 @@ from simuloom.models import (
     ScenarioGraphDiagnostic,
     ScenarioResetAllResult,
     ScenarioResetResult,
+    ScenarioRevision,
+    ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
     ScenarioView,
@@ -70,6 +73,7 @@ class SimulationService:
         self.repository = repository
         self.runtime = runtime
         self.wiremock = runtime  # Backward-compatible internal alias for integrations.
+        self.revisions = ScenarioRevisionStore(repository)
 
     def analyze(self, contract: dict[str, Any]) -> ContractSummary:
         return analyze_contract(contract)
@@ -111,18 +115,31 @@ class SimulationService:
         return simulations
 
     def configure_scenario(
-        self, simulation_id: str, scenario_id: str, definition: ScenarioDefinition
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        definition: ScenarioDefinition,
+        actor: str = "api-client",
+        expected_etag: str | None = None,
     ) -> ScenarioView:
         self._require_simulation(simulation_id)
         contract = self.repository.read_json(simulation_id, "contract.json")
         validate_scenario_contract(contract, definition)
-        self.repository.write_scenario(
-            simulation_id, scenario_id, definition.model_dump(mode="json")
+        revision = self.revisions.save(
+            simulation_id,
+            scenario_id,
+            definition,
+            actor,
+            expected_etag,
         )
         return ScenarioView(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
             definition=definition,
+            revision=revision.revision,
+            etag=revision.etag,
+            updated_at=revision.created_at,
+            updated_by=revision.created_by,
         )
 
     def get_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioView:
@@ -130,10 +147,44 @@ class SimulationService:
         definition = ScenarioDefinition.model_validate(
             self.repository.read_scenario(simulation_id, scenario_id)
         )
+        revision = self.revisions.current(simulation_id, scenario_id, definition)
         return ScenarioView(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
             definition=definition,
+            revision=revision.revision,
+            etag=revision.etag,
+            updated_at=revision.created_at,
+            updated_by=revision.created_by,
+        )
+
+    def scenario_history(
+        self, simulation_id: str, scenario_id: str
+    ) -> list[ScenarioRevisionSummary]:
+        view = self.get_scenario(simulation_id, scenario_id)
+        return self.revisions.history(simulation_id, scenario_id, view.definition)
+
+    def scenario_revision(
+        self, simulation_id: str, scenario_id: str, revision: int
+    ) -> ScenarioRevision:
+        self.get_scenario(simulation_id, scenario_id)
+        return self.revisions.revision(simulation_id, scenario_id, revision)
+
+    def restore_scenario_revision(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        revision: int,
+        actor: str,
+        expected_etag: str | None = None,
+    ) -> ScenarioView:
+        historical = self.scenario_revision(simulation_id, scenario_id, revision)
+        return self.configure_scenario(
+            simulation_id,
+            scenario_id,
+            historical.definition,
+            actor,
+            expected_etag,
         )
 
     def list_scenarios(self, simulation_id: str) -> list[ScenarioSummary]:

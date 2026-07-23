@@ -141,11 +141,50 @@ def import_simulation_bundle(
 
 
 @mcp.tool()
-def configure_scenario(simulation_id: str, scenario_id: str, definition: dict) -> dict:
+def configure_scenario(
+    simulation_id: str,
+    scenario_id: str,
+    definition: dict,
+    expected_etag: str | None = None,
+) -> dict:
     """Create or replace a validated stateful scenario for a simulation."""
-    require_current_role(Role.OPERATOR)
+    principal = require_current_role(Role.OPERATOR)
     parsed = ScenarioDefinition.model_validate(definition)
-    return service.configure_scenario(simulation_id, scenario_id, parsed).model_dump(mode="json")
+    return service.configure_scenario(
+        simulation_id,
+        scenario_id,
+        parsed,
+        actor=principal.subject,
+        expected_etag=expected_etag,
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def scenario_history(simulation_id: str, scenario_id: str) -> list[dict]:
+    """List immutable revisions of a configured scenario, newest first."""
+    require_current_role(Role.VIEWER)
+    return [
+        item.model_dump(mode="json")
+        for item in service.scenario_history(simulation_id, scenario_id)
+    ]
+
+
+@mcp.tool()
+def restore_scenario_revision(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    expected_etag: str | None = None,
+) -> dict:
+    """Restore an older definition as a new revision without deleting history."""
+    principal = require_current_role(Role.OPERATOR)
+    return service.restore_scenario_revision(
+        simulation_id,
+        scenario_id,
+        revision,
+        actor=principal.subject,
+        expected_etag=expected_etag,
+    ).model_dump(mode="json")
 
 
 @mcp.tool()
@@ -231,6 +270,22 @@ def scenario_definition(simulation_id: str, scenario_id: str) -> str:
     """Return a configured scenario definition as a read-only resource."""
     require_current_role(Role.VIEWER)
     return service.get_scenario(simulation_id, scenario_id).model_dump_json(indent=2)
+
+
+@mcp.resource(
+    "scenario://{simulation_id}/{scenario_id}/history",
+    mime_type="application/json",
+)
+def scenario_revision_history(simulation_id: str, scenario_id: str) -> str:
+    """Return immutable scenario revision metadata as a read-only resource."""
+    require_current_role(Role.VIEWER)
+    return json.dumps(
+        [
+            item.model_dump(mode="json")
+            for item in service.scenario_history(simulation_id, scenario_id)
+        ],
+        indent=2,
+    )
 
 
 @mcp.resource(
