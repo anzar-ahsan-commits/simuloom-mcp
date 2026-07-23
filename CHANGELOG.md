@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.40.0 - Local AI and Operational Resilience
+
+- Added opt-in Ollama structured-output scenario drafting with contract validation and no mutation
+  or tool-execution authority.
+- Added a Team Hub console for workspace membership, jobs, integrations, and secret metadata.
+- Added encrypted per-workspace integration signing keys.
+- Persisted integration circuit state across application restarts.
+- Added an application job worker with atomic claims and restart requeue behavior.
+- Migrated the durable platform schema to version 2 with backward-compatible startup migration.
+
+## 0.39.0 - Modern Platform Release Hardening
+
+- Added MCP parity and resources for workspaces, GitOps, jobs, secrets, and integrations.
+- Completed security, compatibility, documentation, packaging, and live deployment gates.
+
+## 0.38.0 - Resilient Automation
+
+- Added idempotent transient delivery retries, exponential backoff, circuit cooldowns, and
+  interrupted-job recovery.
+
+## 0.37.0 - Durable Background Jobs
+
+- Added persisted queued/running/succeeded/failed jobs for workspace backups and GitOps snapshots.
+
+## 0.36.0 - Managed Workspace Secrets
+
+- Added master-key encrypted secrets with metadata-only list operations and no plaintext reads.
+
+## 0.35.0 - Safe Outbound Integrations
+
+- Added exact-host allowlists, HTTPS enforcement, HMAC signatures, idempotency keys, and bounded
+  delivery behavior.
+
+## 0.34.0 - Production Deployment
+
+- Added non-root container execution, upgrade-safe volume ownership, public readiness probes, and
+  Kubernetes deployment assets.
+
+## 0.33.0 - Durable Observability
+
+- Persisted orchestration counters and added consolidated admin diagnostics.
+
+## 0.32.0 - GitOps Automation
+
+- Added deterministic integrity-protected snapshots, a validation/drift CLI, REST export, and CI
+  package gates.
+
+## 0.31.0 - Team Workspaces
+
+- Added durable workspaces, creator ownership, membership-scoped discovery, role management, and
+  last-admin protection.
+
+## 0.30.0 - Durable Platform Store
+
+- Added a WAL-enabled, migration-managed SQLite metadata foundation with schema readiness checks.
+
+## 0.29.0 - Guided Scenario Workflows
+
+- Replaced advanced command-string prompts with accessible labeled dialogs and validation.
+
 ## 0.28.0 - Consolidation and Hardening
 
 - Made workspace artifact writes atomic and durable, with process-coordinated transactions that

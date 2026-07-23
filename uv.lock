@@ -845,9 +845,10 @@ wheels = [
 
 [[package]]
 name = "simuloom-mcp"
-version = "0.28.0"
+version = "0.40.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "faker" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -867,6 +868,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=45,<50" },
     { name = "faker", specifier = "==40.31.0" },
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },

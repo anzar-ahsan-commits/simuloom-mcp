@@ -6,7 +6,8 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from simuloom.container import service
+from simuloom.container import integration_dispatcher, platform_store, secret_vault, service
+from simuloom.core.gitops import build_snapshot
 from simuloom.models import ScenarioDefinition
 from simuloom.security import Role, require_current_role
 
@@ -454,6 +455,79 @@ def restore_workspace_backup(bundle_base64: str) -> dict:
 
 
 @mcp.tool()
+def export_gitops_snapshot(simulation_id: str) -> dict:
+    """Export a deterministic integrity-protected GitOps snapshot."""
+    require_current_role(Role.VIEWER)
+    return build_snapshot(service.repository, simulation_id)
+
+
+@mcp.tool()
+def create_team_workspace(name: str) -> dict:
+    """Create a durable team workspace with the caller as its first admin."""
+    principal = require_current_role(Role.ADMIN)
+    return platform_store.create_workspace(name, principal.subject)
+
+
+@mcp.tool()
+def list_team_workspaces() -> list[dict]:
+    """List team workspaces visible to the caller."""
+    principal = require_current_role(Role.VIEWER)
+    return platform_store.list_workspaces(
+        principal.subject, include_all=principal.role is Role.ADMIN
+    )
+
+
+@mcp.tool()
+def set_team_workspace_member(workspace_id: str, subject: str, role: str) -> dict:
+    """Create or update a team workspace membership; requires platform admin."""
+    require_current_role(Role.ADMIN)
+    if role not in {"viewer", "operator", "admin"}:
+        raise ValueError("role must be viewer, operator, or admin")
+    return platform_store.set_member(workspace_id, subject, role)
+
+
+@mcp.tool()
+def list_workspace_jobs(workspace_id: str) -> list[dict]:
+    """List durable background jobs for an accessible team workspace."""
+    principal = require_current_role(Role.VIEWER)
+    if principal.role is not Role.ADMIN and not platform_store.membership_role(
+        workspace_id, principal.subject
+    ):
+        raise PermissionError("Workspace membership is required")
+    return platform_store.list_jobs(workspace_id)
+
+
+@mcp.tool()
+def put_workspace_secret(workspace_id: str, name: str, value: str) -> dict:
+    """Encrypt or rotate a workspace secret without returning its value."""
+    require_current_role(Role.ADMIN)
+    if not secret_vault.available:
+        raise RuntimeError("Workspace secret storage is not configured")
+    return platform_store.put_secret(workspace_id, name, secret_vault.encrypt(value))
+
+
+@mcp.tool()
+async def dispatch_workspace_integration(
+    workspace_id: str, integration_id: str, event_type: str, payload: dict
+) -> dict:
+    """Deliver one signed, idempotent event through an allowlisted integration."""
+    principal = require_current_role(Role.OPERATOR)
+    if principal.role is not Role.ADMIN and not platform_store.membership_role(
+        workspace_id, principal.subject
+    ):
+        raise PermissionError("Workspace membership is required")
+    integration = platform_store.get_integration(integration_id)
+    if integration["workspace_id"] != workspace_id:
+        raise KeyError(f"Integration not found: {integration_id}")
+    signing_key = None
+    if integration["secret_ref"]:
+        signing_key = secret_vault.decrypt(
+            platform_store.secret_ciphertext(workspace_id, integration["secret_ref"])
+        )
+    return await integration_dispatcher.dispatch(integration, event_type, payload, signing_key)
+
+
+@mcp.tool()
 async def reset_all_scenarios() -> dict:
     """Reset all WireMock scenarios; this global operation requires admin."""
     require_current_role(Role.ADMIN)
@@ -486,6 +560,33 @@ def current_metrics() -> str:
     """Return bounded low-cardinality SimuLoom operation counters."""
     require_current_role(Role.VIEWER)
     return json.dumps(service.metrics_snapshot(), indent=2)
+
+
+@mcp.resource("gitops://simulation/{simulation_id}", mime_type="application/json")
+def gitops_snapshot(simulation_id: str) -> str:
+    """Return the deterministic GitOps snapshot for a simulation."""
+    require_current_role(Role.VIEWER)
+    return json.dumps(build_snapshot(service.repository, simulation_id), indent=2)
+
+
+@mcp.resource("workspace://{workspace_id}/overview", mime_type="application/json")
+def team_workspace_overview(workspace_id: str) -> str:
+    """Return non-secret team workspace membership and automation metadata."""
+    principal = require_current_role(Role.VIEWER)
+    if principal.role is not Role.ADMIN and not platform_store.membership_role(
+        workspace_id, principal.subject
+    ):
+        raise PermissionError("Workspace membership is required")
+    return json.dumps(
+        {
+            "workspace": platform_store.get_workspace(workspace_id),
+            "members": platform_store.list_members(workspace_id),
+            "integrations": platform_store.list_integrations(workspace_id),
+            "jobs": platform_store.list_jobs(workspace_id),
+            "secrets": platform_store.list_secrets(workspace_id),
+        },
+        indent=2,
+    )
 
 
 @mcp.resource("audit://domain/events", mime_type="application/json")

@@ -87,7 +87,12 @@ from simuloom.runtime.translation import from_wiremock_mappings
 
 
 class SimulationService:
-    def __init__(self, repository: WorkspaceRepository, runtime: RuntimeAdapter):
+    def __init__(
+        self,
+        repository: WorkspaceRepository,
+        runtime: RuntimeAdapter,
+        metrics: MetricsRegistry | None = None,
+    ):
         self.repository = repository
         self.runtime = runtime
         self.wiremock = runtime  # Backward-compatible internal alias for integrations.
@@ -96,7 +101,7 @@ class SimulationService:
         self.approvals = ScenarioApprovalStore(repository)
         self.templates = ScenarioTemplateStore(repository)
         self.domain_audit = AuditLog(repository.root / "audit" / "domain-events.jsonl")
-        self.metrics = MetricsRegistry()
+        self.metrics = metrics or MetricsRegistry()
 
     def analyze(self, contract: dict[str, Any]) -> ContractSummary:
         return analyze_contract(contract)

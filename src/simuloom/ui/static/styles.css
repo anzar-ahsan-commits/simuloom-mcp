@@ -155,6 +155,21 @@ input[type="file"] { padding: .52rem; }
 .item-row > button:first-child.active { border-color: var(--accent); background: var(--accent-dark); }
 .remove-button { width: 28px; height: 28px; border: 0; color: var(--danger); background: transparent; cursor: pointer; }
 .designer-placeholder { padding: 2rem 1rem; color: var(--muted); font-size: .75rem; text-align: center; }
+.workspace-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.workspace-hub-card { min-height: 155px; padding: 1.2rem; border: 0; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; }
+.workspace-hub-card:hover, .workspace-hub-card:focus-visible { background: var(--surface-2); outline: inset 2px solid var(--accent); }
+.workspace-hub-card h3 { margin: .8rem 0 .4rem; }
+.workspace-hub-card code, .workspace-hub-card small { display: block; margin-top: .4rem; color: var(--muted); }
+.workspace-hub-detail { min-height: 260px; padding: 1.4rem; color: var(--muted); border-top: 1px solid var(--line); }
+.workspace-hub-heading { display: flex; align-items: center; justify-content: space-between; }
+.workspace-hub-heading h3 { margin: .25rem 0 1rem; color: var(--text); }
+.workspace-hub-columns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.workspace-hub-columns section { padding: 1rem; background: #0b1525; border-radius: 10px; }
+.workspace-hub-columns h4 { margin: 0 0 .8rem; color: var(--text); }
+.workspace-hub-columns p { display: grid; gap: .2rem; padding: .55rem 0; margin: 0; border-bottom: 1px solid var(--line); font-size: .72rem; }
+.workspace-hub-columns p:last-child { border-bottom: 0; }
+.workspace-hub-columns b { color: var(--text); overflow-wrap: anywhere; }
+.error-text { color: var(--danger); }
 
 @media (max-width: 1050px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
@@ -171,7 +186,7 @@ input[type="file"] { padding: .52rem; }
   main { padding: 0 1rem 3rem; }
   .topbar { min-height: 110px; margin-bottom: 1.2rem; }
   .topbar-actions .ghost { display: none; }
-  .simulation-grid, .workspace-grid, .workflow, .designer-shell { grid-template-columns: 1fr; }
+  .simulation-grid, .workspace-grid, .workflow, .designer-shell, .workspace-card-grid, .workspace-hub-columns { grid-template-columns: 1fr; }
   .simulation-list-panel { display: none; }
   .designer-browser { min-height: auto; }
   .designer-body { grid-template-columns: 1fr; }

@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.28.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.40.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -47,6 +47,14 @@ the same deterministic application services are available through REST and MCP.
 - Observe orchestration counters and back up or merge-restore control-plane workspaces.
 - Persist workspace changes atomically with process-safe locks and explicit schema checks.
 - Inspect authenticated runtime and workspace readiness diagnostics.
+- Use guided scenario dialogs instead of command-string prompts.
+- Manage durable team workspaces, role-scoped memberships, background jobs, and encrypted secrets.
+- Export integrity-protected GitOps snapshots and detect configuration drift from CI.
+- Deliver allowlisted, signed, idempotent outbound integration events with retry and circuit control.
+- Deploy as a non-root container with Compose and Kubernetes health/readiness probes.
+- Draft contract-valid scenarios with an optional local Ollama model while keeping save, review,
+  approval, and deployment human-controlled.
+- Operate team workspaces from the console and resume queued jobs after application restarts.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -484,6 +492,9 @@ trusted: SimuLoom recompiles them from the validated contract, dataset, and prof
 - `deploy_scenario`
 - `reset_scenario`
 - `reset_all_scenarios`
+- `export_gitops_snapshot`
+- `create_team_workspace`, `list_team_workspaces`, `set_team_workspace_member`
+- `list_workspace_jobs`, `put_workspace_secret`, `dispatch_workspace_integration`
 
 Read-only simulation metadata is available as
 `simulation://{simulation_id}/manifest`.
@@ -509,6 +520,8 @@ Review evidence and templates are available through
 `scenario://{simulation_id}/{scenario_id}/reviews` and `template://{template_id}/definition`.
 Metrics and domain-audit verification are available through `metrics://current/counters`,
 `audit://domain/events`, and `audit://domain/verification`.
+Modern workspace and GitOps resources are available through
+`workspace://{workspace_id}/overview` and `gitops://simulation/{simulation_id}`.
 
 Live runtime state is available as
 `scenario://{simulation_id}/{scenario_id}/state`.
@@ -537,20 +550,73 @@ Policy and orchestration decisions use a separate domain-event chain at
 workspace backups intentionally exclude active audit logs and runtime databases; those require
 their own operational snapshots. Restore is merge-only and never overwrites an existing file.
 
+## Team automation quick start
+
+Authentication is disabled by default. When enabled, set `SIMULOOM_API_KEY` to an admin key.
+
+```bash
+API=http://localhost:8000/api/v1
+AUTH="X-API-Key: ${SIMULOOM_API_KEY:-}"
+
+WORKSPACE_ID=$(curl --fail --silent -X POST "$API/workspaces" \
+  -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"name":"Payments Platform"}' | python -c \
+  'import json,sys; print(json.load(sys.stdin)["id"])')
+
+curl --fail -X PUT "$API/workspaces/$WORKSPACE_ID/members/qa-engineer" \
+  -H "$AUTH" -H "Content-Type: application/json" -d '{"role":"operator"}'
+
+curl --fail "$API/workspaces/$WORKSPACE_ID/jobs" -H "$AUTH"
+curl --fail "$API/diagnostics" -H "$AUTH"
+```
+
+Export and validate a GitOps snapshot:
+
+```bash
+curl --fail "$API/simulations/$SIMULATION_ID/gitops" -H "$AUTH" \
+  --output simulation.snapshot.json
+uv run simuloom-gitops validate simulation.snapshot.json
+uv run simuloom-gitops diff expected.snapshot.json simulation.snapshot.json
+```
+
+Outbound integrations are disabled until `SIMULOOM_INTEGRATION_ALLOWED_HOSTS` and
+`SIMULOOM_INTEGRATION_SIGNING_KEY` are configured. Encrypted secret writes additionally require
+`SIMULOOM_SECRETS_MASTER_KEY` with at least 32 characters.
+
+## Optional local AI scenario drafting
+
+SimuLoom integrates directly with Ollama structured outputs. AI is disabled by default. Install
+Ollama separately, pull a model, and opt in:
+
+```bash
+ollama pull qwen3:8b
+SIMULOOM_AI_ENABLED=true \
+SIMULOOM_AI_BASE_URL=http://host.docker.internal:11434 \
+SIMULOOM_AI_MODEL=qwen3:8b \
+docker compose up --build -d
+```
+
+Open the scenario designer and choose **AI draft**. SimuLoom sends only the user intent and an
+allowlisted summary of contract operations. The model must return the `ScenarioDefinition` JSON
+schema at temperature 0. The result is validated against the original OpenAPI contract and loaded
+as an unsaved draft. It cannot read secrets, call MCP tools, write files, save revisions, approve
+reviews, deploy mappings, or contact service endpoints.
+
 ## Guardrails
 
-- SimuLoom does not generate or alter API contracts using an LLM.
+- SimuLoom does not generate or alter API contracts using an LLM. Optional AI output is limited to
+  unsaved scenario drafts that undergo normal deterministic validation.
 - Only approved OpenAPI input is compiled.
 - Generated example datasets are marked `synthetic: true`.
 - Never copy client endpoints, schemas, payloads, credentials, or production data into a
   public simulation.
 - Review `SECURITY.md` before exposing SimuLoom outside a local development environment.
 
-## Next milestones
+## Future work
 
-1. Distributed native runtime coordination and multi-worker execution.
-2. Additional external runtime adapters and adapter conformance suites.
-3. External identity-provider integration and short-lived credentials.
+- External identity-provider integration and short-lived credentials.
+- Distributed workers backed by PostgreSQL or a managed queue.
+- Additional runtime adapters and adapter conformance suites.
 
 ## License
 

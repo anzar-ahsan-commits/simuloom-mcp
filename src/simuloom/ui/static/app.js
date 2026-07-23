@@ -5,6 +5,7 @@ const state = {
   simulations: [],
   selectedId: null,
   role: "viewer",
+  workspaces: [],
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -61,16 +62,17 @@ function switchView(name) {
       && !window.confirm("Leave the designer and discard your unsaved changes?")) return;
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${name}-view`));
   $$(".nav-item[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
-  $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : "Simulation workspace";
+  $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : name === "workspaces" ? "Team workspace hub" : "Simulation workspace";
 }
 
 async function loadDashboard() {
   try {
-    const [health, capabilities, simulations, session] = await Promise.all([
-      api("/health"), api("/runtime"), api("/simulations"), api("/session"),
+    const [health, capabilities, simulations, session, workspaces] = await Promise.all([
+      api("/health"), api("/runtime"), api("/simulations"), api("/session"), api("/workspaces"),
     ]);
     state.simulations = simulations;
     state.role = session.role;
+    state.workspaces = workspaces;
     $("#auth-button").textContent = `${session.role} session`;
     $("#new-simulation-button").disabled = session.role === "viewer";
     $("#empty-create-button").disabled = session.role === "viewer";
@@ -85,11 +87,55 @@ async function loadDashboard() {
     $("#simulation-count").textContent = simulations.length;
     $("#report-count").textContent = simulations.filter((item) => item.has_report).length;
     renderSimulations();
+    renderWorkspaceHub();
     if (typeof refreshDesignerSimulations === "function") refreshDesignerSimulations();
   } catch (error) {
     notify(error.message, true);
     if (/valid Bearer|Authentication required/i.test(error.message)) $("#auth-dialog").showModal();
   }
+}
+
+function renderWorkspaceHub() {
+  const grid = $("#workspace-card-grid");
+  if (!grid) return;
+  $("#new-workspace-button").disabled = state.role !== "admin";
+  grid.innerHTML = state.workspaces.length ? state.workspaces.map((workspace) => `<button class="workspace-hub-card" data-workspace-id="${escapeHtml(workspace.id)}"><span class="status">Team</span><h3>${escapeHtml(workspace.name)}</h3><code>${escapeHtml(workspace.id)}</code><small>Created by ${escapeHtml(workspace.created_by)}</small></button>`).join("") : '<div class="empty-state"><h3>No team workspaces</h3><p>Platform admins can create the first collaboration boundary.</p></div>';
+  $$('[data-workspace-id]', grid).forEach((button) => button.addEventListener("click", () => loadWorkspaceHubDetail(button.dataset.workspaceId)));
+}
+
+async function loadWorkspaceHubDetail(workspaceId) {
+  const target = $("#workspace-hub-detail");
+  target.innerHTML = '<p>Loading workspace details…</p>';
+  try {
+    const [members, jobs, integrations, secrets] = await Promise.all([
+      api(`/workspaces/${workspaceId}/members`),
+      api(`/workspaces/${workspaceId}/jobs`),
+      api(`/workspaces/${workspaceId}/integrations`),
+      api(`/workspaces/${workspaceId}/secrets`).catch((error) => error.status === 403 ? [] : Promise.reject(error)),
+    ]);
+    target.innerHTML = `<div class="workspace-hub-heading"><div><p class="eyebrow">${escapeHtml(workspaceId)}</p><h3>Workspace operations</h3></div><button class="button" id="add-workspace-member">Add member</button></div><div class="workspace-hub-columns">
+      <section><h4>Members</h4>${members.map((item) => `<p><b>${escapeHtml(item.subject)}</b><span>${escapeHtml(item.role)}</span></p>`).join("") || "<small>No members</small>"}</section>
+      <section><h4>Recent jobs</h4>${jobs.slice(0, 8).map((item) => `<p><b>${escapeHtml(item.kind)}</b><span>${escapeHtml(item.status)} · ${item.progress}%</span></p>`).join("") || "<small>No jobs</small>"}</section>
+      <section><h4>Integrations</h4>${integrations.map((item) => `<p><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.event_types.join(", "))}</span></p>`).join("") || "<small>No integrations</small>"}</section>
+      <section><h4>Secret metadata</h4>${secrets.map((item) => `<p><b>${escapeHtml(item.name)}</b><span>Updated ${new Date(item.updated_at).toLocaleDateString()}</span></p>`).join("") || "<small>No visible secrets</small>"}</section>
+    </div>`;
+    $("#add-workspace-member").disabled = state.role === "viewer";
+    $("#add-workspace-member").addEventListener("click", () => addWorkspaceMember(workspaceId));
+  } catch (error) { target.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`; }
+}
+
+async function createTeamWorkspace() {
+  const values = await openWorkflowDialog({ title: "Create team workspace", description: "Create an isolated collaboration boundary. You become its first administrator.", submitLabel: "Create workspace", fields: [{ name: "name", label: "Workspace name", placeholder: "Payments Platform" }] });
+  if (!values) return;
+  await api("/workspaces", { method: "POST", body: JSON.stringify(values) });
+  notify("Team workspace created"); await loadDashboard();
+}
+
+async function addWorkspaceMember(workspaceId) {
+  const values = await openWorkflowDialog({ title: "Add workspace member", description: "Assign the lowest role needed for this workspace.", submitLabel: "Save membership", fields: [{ name: "subject", label: "Authenticated subject", placeholder: "qa-engineer" }, { name: "role", label: "Workspace role", options: [["viewer", "Viewer"], ["operator", "Operator"], ["admin", "Admin"]] }] });
+  if (!values) return;
+  await api(`/workspaces/${workspaceId}/members/${encodeURIComponent(values.subject)}`, { method: "PUT", body: JSON.stringify({ role: values.role }) });
+  notify("Workspace membership updated"); await loadWorkspaceHubDetail(workspaceId);
 }
 
 function simulationCard(item) {
@@ -228,6 +274,7 @@ function initialize() {
   ["#new-simulation-button", "#empty-create-button"].forEach((selector) => $(selector).addEventListener("click", () => $("#create-dialog").showModal()));
   $("#auth-button").addEventListener("click", () => { $("#api-key-input").value = state.apiKey; $("#auth-dialog").showModal(); });
   $("#refresh-button").addEventListener("click", loadDashboard);
+  $("#new-workspace-button").addEventListener("click", createTeamWorkspace);
   $("#create-form").addEventListener("submit", createSimulation);
   $("#auth-form").addEventListener("submit", (event) => {
     event.preventDefault();

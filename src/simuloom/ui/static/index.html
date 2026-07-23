@@ -22,11 +22,12 @@
         <button class="nav-item active" data-view="overview"><span>01</span> Overview</button>
         <button class="nav-item" data-view="simulations"><span>02</span> Simulations</button>
         <button class="nav-item" data-view="scenarios"><span>03</span> Scenarios</button>
-        <a class="nav-item" href="/docs"><span>04</span> API reference</a>
+        <button class="nav-item" data-view="workspaces"><span>04</span> Team Hub</button>
+        <a class="nav-item" href="/docs"><span>05</span> API reference</a>
       </nav>
       <div class="sidebar-foot">
         <div class="runtime-mini"><i id="sidebar-runtime-dot"></i><span id="sidebar-runtime">Connecting</span></div>
-        <small>SimuLoom v0.28.0</small>
+        <small>SimuLoom v0.40.0</small>
       </div>
     </aside>
 
@@ -94,6 +95,17 @@
           </div>
         </div>
       </section>
+
+      <section id="workspaces-view" class="view" aria-label="Team workspace administration">
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Collaboration control plane</p><h2>Team workspaces</h2></div>
+            <button class="button primary" id="new-workspace-button">New workspace</button>
+          </div>
+          <div id="workspace-card-grid" class="workspace-card-grid"></div>
+          <div id="workspace-hub-detail" class="workspace-hub-detail"><p>Select a workspace to inspect members, jobs, integrations, and secret metadata.</p></div>
+        </section>
+      </section>
     </main>
   </div>
 
@@ -123,6 +135,15 @@
       <label>Name<input name="name" required minlength="3" maxlength="100" placeholder="Order lifecycle"></label>
       <label>Description<input name="description" required maxlength="500" placeholder="Create, pay, and ship an order"></label>
       <div class="dialog-actions"><button class="button ghost" type="button" data-close="scenario-metadata-dialog">Cancel</button><button class="button primary" type="submit">Open designer</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="workflow-dialog">
+    <form id="workflow-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Guided workflow</p><h2 id="workflow-title">Scenario action</h2></div><button class="icon-button" type="button" data-close="workflow-dialog" aria-label="Close">×</button></div>
+      <p id="workflow-description" class="field-help"></p>
+      <div id="workflow-fields"></div>
+      <div class="dialog-actions"><button class="button ghost" type="button" data-close="workflow-dialog">Cancel</button><button class="button primary" id="workflow-submit" type="submit">Continue</button></div>
     </form>
   </dialog>
 </body>

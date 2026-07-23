@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -8,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from simuloom.api.routes import router
 from simuloom.api.runtime import runtime_router
-from simuloom.container import access_controller, audit_log
+from simuloom.container import access_controller, audit_log, job_runner
 from simuloom.core.audit import AuditLog
 from simuloom.mcp.server import mcp
 from simuloom.security import AccessController, AuthAuditMiddleware
@@ -17,8 +18,13 @@ from simuloom.ui.router import STATIC_ROOT, ConsoleSecurityHeadersMiddleware, ui
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    async with mcp.session_manager.run():
-        yield
+    worker = asyncio.create_task(job_runner.run())
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        job_runner.stop()
+        await worker
 
 
 def create_app(
@@ -27,7 +33,7 @@ def create_app(
 ) -> FastAPI:
     application = FastAPI(
         title="SimuLoom",
-        version="0.28.0",
+        version="0.40.0",
         description="Contract-driven service virtualization, scenarios, and synthetic test data.",
         lifespan=lifespan,
     )
