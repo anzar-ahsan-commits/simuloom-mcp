@@ -97,3 +97,32 @@ async def test_constraint_edges_against_real_wiremock(tmp_path: Path) -> None:
         assert report.negative_coverage.percentage == 100.0
     finally:
         await wiremock.deploy([], reset_existing=True)
+
+
+@pytest.mark.asyncio
+async def test_pairwise_checkout_against_real_wiremock(tmp_path: Path) -> None:
+    if os.getenv("SIMULOOM_WIREMOCK_INTEGRATION") != "1":
+        pytest.skip("Set SIMULOOM_WIREMOCK_INTEGRATION=1 to run this test")
+    contract = yaml.safe_load(Path("examples/pricing-checkout/openapi.yaml").read_text())
+    wiremock = WireMockClient("http://localhost:8080")
+    assert await wiremock.health()
+    service = SimulationService(WorkspaceRepository(tmp_path), wiremock)
+    simulation = service.create("Pairwise Integration", contract)
+
+    try:
+        compiled = service.compile(simulation.id)
+        await service.deploy(simulation.id, reset_existing=True)
+        report = await service.validate(
+            simulation.id,
+            max_dataset_cases=3,
+            reset_runtime_state=True,
+            include_pairwise_cases=True,
+            max_pairwise_cases_per_operation=50,
+        )
+
+        assert compiled.pairwise_mapping_count > 0
+        assert report.status == "passed"
+        assert report.pairwise_coverage.percentage == 100.0
+        assert report.pairwise_coverage.covered == report.pairwise_coverage.total
+    finally:
+        await wiremock.deploy([], reset_existing=True)

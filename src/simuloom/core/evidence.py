@@ -21,6 +21,7 @@ from simuloom.core.contracts import (
     operation_identifier,
 )
 from simuloom.core.edge_cases import generate_edge_cases
+from simuloom.core.pairwise import generate_pairwise_cases
 from simuloom.core.repository import WorkspaceRepository
 from simuloom.core.scenarios import wiremock_scenario_name
 from simuloom.models import (
@@ -53,6 +54,9 @@ class ValidationCase:
     edge_constraint: str | None = None
     edge_location: str | None = None
     edge_field: str | None = None
+    pairwise_assignments: dict[str, str] | None = None
+    pairwise_pair_ids: list[str] | None = None
+    pairwise_total_pairs: int = 0
 
 
 def _operation(contract: dict[str, Any], operation_id: str) -> dict[str, Any] | None:
@@ -184,6 +188,28 @@ def build_edge_validation_cases(
             include_negative=include_negative,
             max_per_operation=max_per_operation,
         )
+    ]
+
+
+def build_pairwise_validation_cases(
+    contract: dict[str, Any], *, max_per_operation: int
+) -> list[ValidationCase]:
+    return [
+        ValidationCase(
+            name=f"{case['operationId']} pairwise {case['caseId']}",
+            category="pairwise",
+            operation_id=case["operationId"],
+            method=case["method"],
+            path=case["path"],
+            expected_status=case["expectedStatus"],
+            body=case.get("body"),
+            headers=case.get("headers") or None,
+            response_schema=_response_schema(contract, case["operationId"], case["expectedStatus"]),
+            pairwise_assignments=case["pairwise"]["assignments"],
+            pairwise_pair_ids=case["pairwise"]["pairIds"],
+            pairwise_total_pairs=case["pairwise"]["totalPairs"],
+        )
+        for case in generate_pairwise_cases(contract, max_per_operation=max_per_operation)
     ]
 
 
@@ -451,6 +477,7 @@ Profile: <strong>{html.escape(report.active_profile)}</strong></p>
 <div class="card">Transitions<br><strong>{report.transition_coverage.percentage}%</strong></div>
 <div class="card">Boundaries<br><strong>{report.boundary_coverage.percentage}%</strong></div>
 <div class="card">Negative<br><strong>{report.negative_coverage.percentage}%</strong></div>
+<div class="card">Pairwise<br><strong>{report.pairwise_coverage.percentage}%</strong></div>
 <div class="card">Unmatched<br><strong>{report.summary.unmatched_requests}</strong></div></div>
 <table><thead><tr><th>Case</th><th>Operation</th><th>Expected</th>
 <th>Actual</th><th>Result</th><th>Errors</th></tr></thead>
@@ -470,6 +497,8 @@ class EvidenceEngine:
         include_boundary_cases: bool = False,
         include_negative_cases: bool = False,
         max_edge_cases_per_operation: int = 12,
+        include_pairwise_cases: bool = False,
+        max_pairwise_cases_per_operation: int = 25,
     ) -> EvidenceReport:
         contract = self.repository.read_json(simulation_id, "contract.json")
         simulation = self.repository.read_json(simulation_id, "simulation.json")
@@ -505,6 +534,12 @@ class EvidenceEngine:
                 max_per_operation=max_edge_cases_per_operation,
             )
         )
+        if include_pairwise_cases:
+            cases.extend(
+                build_pairwise_validation_cases(
+                    contract, max_per_operation=max_pairwise_cases_per_operation
+                )
+            )
         results: list[ValidationCaseResult] = []
         for case in cases:
             errors: list[str] = []
@@ -574,6 +609,9 @@ class EvidenceEngine:
                     edge_constraint=case.edge_constraint,
                     edge_location=case.edge_location,
                     edge_field=case.edge_field,
+                    pairwise_assignments=case.pairwise_assignments,
+                    pairwise_pair_ids=case.pairwise_pair_ids or [],
+                    pairwise_total_pairs=case.pairwise_total_pairs,
                 )
             )
 
@@ -636,6 +674,17 @@ class EvidenceEngine:
         negative_coverage = _coverage(
             sum(result.passed for result in negative_results), len(negative_results)
         )
+        pairwise_totals: dict[str, int] = {}
+        covered_pair_ids: set[str] = set()
+        for result in results:
+            if result.pairwise_assignments is None:
+                continue
+            pairwise_totals[result.operation_id] = max(
+                pairwise_totals.get(result.operation_id, 0), result.pairwise_total_pairs
+            )
+            if result.passed:
+                covered_pair_ids.update(result.pairwise_pair_ids)
+        pairwise_coverage = _coverage(len(covered_pair_ids), sum(pairwise_totals.values()))
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         report_id = f"evidence-{timestamp}-{uuid.uuid4().hex[:6]}"
         report = EvidenceReport(
@@ -650,6 +699,7 @@ class EvidenceEngine:
                 and unmatched == 0
                 and state_coverage.percentage == 100.0
                 and transition_coverage.percentage == 100.0
+                and pairwise_coverage.percentage == 100.0
                 else "failed"
             ),
             summary=ValidationSummary(
@@ -667,6 +717,7 @@ class EvidenceEngine:
             transition_coverage=transition_coverage,
             boundary_coverage=boundary_coverage,
             negative_coverage=negative_coverage,
+            pairwise_coverage=pairwise_coverage,
             results=results,
             artifacts={"json": "reports/latest.json", "html": "reports/latest.html"},
         )
