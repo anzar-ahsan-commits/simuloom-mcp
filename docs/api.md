@@ -1,9 +1,8 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.10.0 adds opt-in OpenAPI constraint edge cases alongside the exhaustive
-reachable-transition evidence introduced in v0.9.0. Existing contract, dataset, profile,
-validation, authentication, and scenario operations remain available without breaking
-request changes.
+SimuLoom v0.11.0 adds opt-in pairwise request generation alongside v0.10 constraint edge
+cases and v0.9 scenario evidence. Existing contract, dataset, profile, validation,
+authentication, and scenario operations remain available without breaking request changes.
 
 ## REST endpoints
 
@@ -85,7 +84,26 @@ Request bodies and query/header/path parameters are supported where the constrai
 represented as an exact HTTP request.
 
 Arbitrary regular expressions are deliberately not executed. External references,
-multipart bodies, and pairwise combinations remain unsupported.
+multipart bodies, and higher-strength combinations remain unsupported.
+
+## Pairwise validation options
+
+Both validation request models also accept:
+
+| Field | Default | Range | Purpose |
+| --- | ---: | ---: | --- |
+| `include_pairwise_cases` | `false` | boolean | Execute a valid strength-two covering array |
+| `max_pairwise_cases_per_operation` | `25` | 1-50 | Bound pairwise requests per operation |
+
+Plan cases and evidence results expose `pairwise_assignments`, `pairwise_pair_ids`, and
+`pairwise_total_pairs`. Reports expose `pairwise_coverage`. Coverage is calculated from pairs
+exercised by successful cases. If the configured cap prevents complete coverage, the report
+fails even when every executed request returned the expected response.
+
+The generator supports at most 12 factors and four representative values per factor, with a
+global 500-case limit. It uses valid enum, boolean, numeric, string-length, array-size,
+optional/absent, nullable, and `oneOf`/`anyOf` alternatives. It does not combine multiple
+invalid values; focused negative behavior remains part of v0.10 edge-case validation.
 
 ## MCP
 
@@ -93,7 +111,7 @@ Tools: `configure_scenario`, `inspect_scenario`, `compile_scenario`,
 `deploy_scenario`, `reset_scenario`, and `reset_all_scenarios`.
 
 The existing `plan_validation` and `run_validation` MCP tools accept the same edge-case
-options as REST.
+and pairwise options as REST.
 
 Resources:
 

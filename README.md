@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.10.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.11.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -27,6 +27,8 @@ the same deterministic application services are available through REST and MCP.
 - Calculate operation, scenario, state, and transition coverage and capture unmatched traffic.
 - Generate opt-in valid boundary and documented negative cases from OpenAPI request schemas.
 - Publish boundary and negative constraint coverage in JSON and HTML evidence.
+- Generate bounded pairwise suites that cover every two-value request interaction.
+- Report incomplete pairwise coverage when a configured case cap is too low.
 - Publish machine-readable JSON and human-readable HTML evidence.
 - Export reproducible, Git-friendly `simulation.yaml` bundles.
 - Safely import portable bundles and regenerate mappings from approved source artifacts.
@@ -207,6 +209,29 @@ request matching and priority 2, between dataset/scenario mappings and contract 
 See [the constraint-validation walkthrough](examples/constraint-validation/README.md) for
 copy-paste commands and an OpenAPI contract with documented `201` and `400` responses.
 
+## Pairwise request testing
+
+When several valid inputs interact, testing the complete Cartesian product quickly becomes
+too expensive. SimuLoom builds a deterministic strength-two covering array so every value of
+each factor appears with every value of every other factor at least once.
+
+```json
+{
+  "max_dataset_cases": 3,
+  "include_pairwise_cases": true,
+  "max_pairwise_cases_per_operation": 25
+}
+```
+
+Pairwise factors include enums, booleans, bounded numbers, string and array sizes, optional
+presence, nullable values, and `oneOf`/`anyOf` alternatives. Cases contain only individually
+valid values; v0.10 negative cases remain the focused mechanism for invalid inputs. Generation
+is capped at 12 factors, four values per factor, 50 cases per operation, and 500 cases overall.
+If the selected cap cannot cover every pair, evidence reports the partial percentage and fails.
+
+See [the pricing-checkout walkthrough](examples/pricing-checkout/README.md) for a realistic
+multi-factor example with substantially fewer requests than its full Cartesian product.
+
 ## Eligibility accelerator
 
 After generating data and compiling, each generated member can be called directly:
@@ -299,7 +324,7 @@ The evidence engine:
 4. Executes generic contract cases and specialized eligibility cases alongside scenarios.
 5. Compares actual and expected HTTP statuses and validates successful JSON responses against
    the approved OpenAPI schemas.
-6. Calculates operation, scenario, state, transition, boundary, and negative coverage.
+6. Calculates operation, scenario, state, transition, boundary, negative, and pairwise coverage.
 7. Reads the WireMock request journal, counts unmatched requests, and saves
    `reports/latest.json` and `reports/latest.html`.
 
@@ -401,7 +426,7 @@ append to a corrupted log.
 
 ## Next milestones
 
-1. Pairwise and combinatorial constraint testing.
+1. Higher-strength and constrained combinatorial testing.
 2. Pluggable data generators and runtime adapters beyond WireMock.
 3. External identity-provider integration and short-lived credentials.
 

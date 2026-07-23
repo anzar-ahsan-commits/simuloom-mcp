@@ -91,6 +91,14 @@ def test_rest_validation_plan_accepts_opt_in_edge_options(tmp_path: Path, monkey
                 "max_edge_cases_per_operation": 20,
             },
         )
+        pairwise = client.post(
+            f"/api/v1/simulations/{simulation_id}/validation/plan",
+            json={
+                "max_dataset_cases": 1,
+                "include_pairwise_cases": True,
+                "max_pairwise_cases_per_operation": 25,
+            },
+        )
     finally:
         client.close()
 
@@ -99,3 +107,5 @@ def test_rest_validation_plan_accepts_opt_in_edge_options(tmp_path: Path, monkey
     assert expanded.status_code == 200
     edge_cases = [case for case in expanded.json()["cases"] if case["edge_polarity"] is not None]
     assert {case["edge_polarity"] for case in edge_cases} == {"boundary", "negative"}
+    assert pairwise.status_code == 200
+    assert any(case["pairwise_assignments"] for case in pairwise.json()["cases"])

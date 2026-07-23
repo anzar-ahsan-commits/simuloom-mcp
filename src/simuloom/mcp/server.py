@@ -50,6 +50,8 @@ def plan_validation(
     include_boundary_cases: bool = False,
     include_negative_cases: bool = False,
     max_edge_cases_per_operation: int = 12,
+    include_pairwise_cases: bool = False,
+    max_pairwise_cases_per_operation: int = 25,
 ) -> dict:
     """Preview domain-independent validation cases without invoking WireMock."""
     require_current_role(Role.VIEWER)
@@ -59,6 +61,8 @@ def plan_validation(
         include_boundary_cases,
         include_negative_cases,
         max_edge_cases_per_operation,
+        include_pairwise_cases,
+        max_pairwise_cases_per_operation,
     ).model_dump()
 
 
@@ -98,6 +102,8 @@ async def run_validation(
     include_boundary_cases: bool = False,
     include_negative_cases: bool = False,
     max_edge_cases_per_operation: int = 12,
+    include_pairwise_cases: bool = False,
+    max_pairwise_cases_per_operation: int = 25,
 ) -> dict:
     """Execute validation cases and produce contract, coverage, and traffic evidence."""
     require_current_role(Role.OPERATOR)
@@ -108,6 +114,8 @@ async def run_validation(
         include_boundary_cases,
         include_negative_cases,
         max_edge_cases_per_operation,
+        include_pairwise_cases,
+        max_pairwise_cases_per_operation,
     )
     return report.model_dump(mode="json")
 

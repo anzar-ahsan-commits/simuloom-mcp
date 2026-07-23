@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 - Pairwise Test Generation
+
+- Added deterministic strength-two covering arrays for valid OpenAPI request values.
+- Added enum, boolean, numeric, string, array, optional, nullable, and union factors.
+- Added exact priority-three WireMock mappings and bounded case generation.
+- Added opt-in REST and MCP pairwise validation controls.
+- Added pairwise coverage to JSON and HTML evidence, including explicit cap shortfalls.
+- Added a synthetic pricing-checkout example and real WireMock integration coverage.
+
 ## 0.10.0 - Contract Edge-Case Validation
 
 - Added deterministic boundary and negative requests derived from approved OpenAPI schemas.

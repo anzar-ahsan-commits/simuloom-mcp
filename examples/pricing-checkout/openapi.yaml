@@ -1,0 +1,70 @@
+openapi: 3.1.0
+info:
+  title: Synthetic Pricing Checkout API
+  version: 1.0.0
+  description: Fictional checkout inputs for deterministic pairwise testing.
+paths:
+  /checkout/quote:
+    post:
+      operationId: quoteCheckout
+      parameters:
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [US, EU, APAC]
+        - name: X-Sales-Channel
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [WEB, MOBILE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuoteRequest"
+      responses:
+        "200":
+          description: Deterministic synthetic quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+components:
+  schemas:
+    QuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [tier, quantity, expedited]
+      properties:
+        tier:
+          type: string
+          enum: [STANDARD, PREMIUM]
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+        expedited:
+          type: boolean
+        coupon:
+          type: string
+          enum: [SAVE10, FREESHIP]
+    Quote:
+      type: object
+      required: [quoteId, total, currency, synthetic]
+      properties:
+        quoteId:
+          type: string
+          example: SYN-QUOTE-001
+        total:
+          type: number
+          example: 42.0
+        currency:
+          type: string
+          example: USD
+        synthetic:
+          type: boolean
+          const: true
