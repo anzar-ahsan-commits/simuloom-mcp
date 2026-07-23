@@ -11,6 +11,10 @@ issue, pull request, simulation bundle, or reproduction case.
 - Enable authentication outside isolated local development.
 - Generate long, random API keys and store them in a secret manager.
 - Set a stable, high-entropy `SIMULOOM_AUDIT_SIGNING_KEY` and protect its history.
+- Set `SIMULOOM_SECRETS_MASTER_KEY` through an external secret manager before using workspace
+  secrets. Losing or changing it makes existing encrypted values unreadable.
+- Allowlist every outbound integration hostname explicitly and use HTTPS. Keep local/private
+  addresses out of `SIMULOOM_INTEGRATION_ALLOWED_HOSTS`.
 - Terminate TLS at a trusted reverse proxy or ingress.
 - Give users the lowest sufficient role and rotate credentials regularly.
 - Place WireMock's Admin API on a private network reachable only by SimuLoom.
@@ -30,7 +34,7 @@ issue, pull request, simulation bundle, or reproduction case.
 
 ## Current security boundary
 
-SimuLoom v0.15 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.40 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.
@@ -42,3 +46,12 @@ is available.
 
 Individual scenario resets require operator access. Resetting every scenario in the shared
 WireMock runtime requires admin access and should be treated as a cross-simulation operation.
+
+Outbound delivery follows no redirects, signs the exact body with HMAC-SHA256, reuses one
+idempotency key across retries, and opens a cooldown circuit after repeated transient failures.
+Host allowlisting is the primary SSRF boundary; do not use broad wildcard or shared proxy hosts.
+
+The optional Ollama integration is draft-only. Keep it disabled unless the selected local model and
+host are trusted. SimuLoom excludes credentials and request bodies from model context, enforces
+structured output, validates the result against the approved contract, and never persists it without
+a separate operator save action. Model output must still receive human review.

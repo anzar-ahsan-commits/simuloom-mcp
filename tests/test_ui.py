@@ -37,6 +37,12 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
     assert "rollbackDesignerRelease" in designer.text
     assert "showScenarioReviews" in designer.text
     assert "runDesignerAutomation" in designer.text
+    assert "draftScenarioWithAI" in designer.text
+    assert "openWorkflowDialog" in designer.text
+    assert "window.prompt" not in designer.text
+    assert 'id="workflow-dialog"' in console.text
+    assert 'id="workspaces-view"' in console.text
+    assert "loadWorkspaceHubDetail" in script.text
     assert "innerHTML = definition" not in designer.text
     assert styles.status_code == 200
     assert "--accent" in styles.text

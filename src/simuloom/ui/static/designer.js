@@ -19,6 +19,52 @@ const designer = {
 
 const svgNamespace = "http://www.w3.org/2000/svg";
 
+function openWorkflowDialog({ title, description, submitLabel = "Continue", fields }) {
+  const dialog = $("#workflow-dialog");
+  const form = $("#workflow-form");
+  const target = $("#workflow-fields");
+  $("#workflow-title").textContent = title;
+  $("#workflow-description").textContent = description;
+  $("#workflow-submit").textContent = submitLabel;
+  target.replaceChildren();
+  fields.forEach((field) => {
+    const label = document.createElement("label");
+    label.append(document.createTextNode(field.label));
+    let input;
+    if (field.options) {
+      input = document.createElement("select");
+      field.options.forEach(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value; option.textContent = text; input.append(option);
+      });
+    } else {
+      input = document.createElement(field.multiline ? "textarea" : "input");
+      input.type = field.type || "text";
+      if (field.min !== undefined) input.min = String(field.min);
+      if (field.max !== undefined) input.max = String(field.max);
+      if (field.placeholder) input.placeholder = field.placeholder;
+    }
+    input.name = field.name;
+    input.required = field.required !== false;
+    if (field.value !== undefined) input.value = String(field.value);
+    label.append(input); target.append(label);
+  });
+  return new Promise((resolve) => {
+    let submitted = false;
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      submitted = true;
+      resolve(Object.fromEntries(new FormData(form).entries()));
+      dialog.close();
+    };
+    dialog.onclose = () => { if (!submitted) resolve(null); };
+    dialog.showModal();
+    const first = $("input, select, textarea", target);
+    if (first) first.focus();
+  });
+}
+
 function svgElement(name, attributes = {}, text = null) {
   const element = document.createElementNS(svgNamespace, name);
   Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
@@ -168,6 +214,7 @@ function renderDesigner() {
     <button class="button ghost" data-designer-action="releases">Releases</button>
     <button class="button ghost" data-designer-action="reviews">Reviews</button>
     <button class="button ghost" data-designer-action="automate">Automate</button>
+    <button class="button ghost" data-designer-action="ai-draft" data-designer-mutate>AI draft</button>
     <button class="button ghost" data-designer-action="export">Export</button>
     <button class="button" data-designer-action="save" data-designer-mutate>Save</button>
     <button class="button" data-designer-action="compile" data-designer-mutate>Compile</button>
@@ -378,6 +425,7 @@ async function runDesignerAction(button) {
     if (action === "releases") return await showScenarioReleases(base);
     if (action === "reviews") return await showScenarioReviews(base);
     if (action === "automate") return await runDesignerAutomation(base);
+    if (action === "ai-draft") return await draftScenarioWithAI();
     if (action === "compile") result = await api(`${base}/compile`, { method: "POST" });
     if (action === "deploy") result = await api(`${base}/deploy`, { method: "POST" });
     if (action === "runtime") result = await api(`${base}/state`);
@@ -404,6 +452,33 @@ async function runDesignerAction(button) {
     else notify(error.message, true);
   }
   finally { setBusy(button, false); }
+}
+
+async function draftScenarioWithAI() {
+  const values = await openWorkflowDialog({
+    title: "Draft with local AI",
+    description: "Describe the business journey. Ollama returns an unsaved draft that SimuLoom validates against the approved contract. It cannot save or deploy.",
+    submitLabel: "Generate draft",
+    fields: [
+      { name: "scenario_name", label: "Scenario name", value: designer.definition.name },
+      { name: "intent", label: "Journey and expected states", multiline: true, placeholder: "An order is created, paid, shipped, and can be inspected after each step." },
+    ],
+  });
+  if (!values) return null;
+  const result = await api(`/simulations/${designer.simulationId}/ai/scenarios/draft`, {
+    method: "POST",
+    body: JSON.stringify(values),
+  });
+  if (!window.confirm("Replace the current editor contents with this validated, unsaved AI draft?")) return result;
+  designer.definition = structuredClone(result.definition);
+  designer.stateIndex = 0;
+  designer.handlerIndex = 0;
+  designer.savedSnapshot = null;
+  designer.revision = null;
+  designer.etag = null;
+  renderDesigner();
+  notify(`${result.model} created a validated draft; review every response before saving`);
+  return result;
 }
 
 function designerIsDirty() {
@@ -444,11 +519,14 @@ async function showScenarioHistory(base) {
   $("pre", drawer).textContent = history.map((item) => `Revision ${item.revision} · ${item.created_by} · ${new Date(item.created_at).toLocaleString()} · ${item.state_count} states`).join("\n");
   drawer.hidden = false;
   if (history.length > 1) {
-    const requested = window.prompt("Optional: enter 'compare 1 2', 'deploy 1', or 'restore 1'.");
-    const [action, first, second] = (requested || "").trim().split(/\s+/);
-    if (action === "compare") await compareDesignerRevisions(base, Number(first), Number(second));
-    if (state.role !== "viewer" && action === "deploy") await deployDesignerRevision(base, Number(first));
-    if (state.role !== "viewer" && action === "restore") await restoreDesignerRevision(base, Number(first));
+    const values = await openWorkflowDialog({ title: "Revision action", description: "Compare two immutable revisions, or deploy or restore one revision.", fields: [
+      { name: "action", label: "Action", options: [["compare", "Compare revisions"], ["deploy", "Deploy revision"], ["restore", "Restore revision"]] },
+      { name: "revision", label: "Revision", type: "number", min: 1, value: history[0].revision },
+      { name: "to_revision", label: "Comparison target revision", type: "number", min: 1, value: history[history.length - 1].revision },
+    ] });
+    if (values?.action === "compare") await compareDesignerRevisions(base, Number(values.revision), Number(values.to_revision));
+    if (state.role !== "viewer" && values?.action === "deploy") await deployDesignerRevision(base, Number(values.revision));
+    if (state.role !== "viewer" && values?.action === "restore") await restoreDesignerRevision(base, Number(values.revision));
   }
   return history;
 }
@@ -478,8 +556,10 @@ async function showScenarioReleases(base) {
   $("pre", drawer).textContent = designer.releases.map((release) => `Release ${release.release_number} · revision ${release.revision} · ${release.deployed_by} · ${new Date(release.deployed_at).toLocaleString()}${release.source_release ? ` · rollback of ${release.source_release}` : ""}`).join("\n") || "No releases deployed";
   drawer.hidden = false;
   if (state.role !== "viewer" && designer.releases.length) {
-    const requested = window.prompt("Enter a release number to roll back, or leave blank to inspect only:");
-    if (requested) await rollbackDesignerRelease(base, Number(requested));
+    const values = await openWorkflowDialog({ title: "Roll back a release", description: "Select an immutable release to redeploy as a new rollback release.", submitLabel: "Review rollback", fields: [
+      { name: "release", label: "Release", options: designer.releases.map((item) => [String(item.release_number), `Release ${item.release_number} · revision ${item.revision}`]) },
+    ] });
+    if (values) await rollbackDesignerRelease(base, Number(values.release));
   }
   return designer.releases;
 }
@@ -500,19 +580,27 @@ async function showScenarioReviews(base) {
   $("pre", drawer).textContent = designer.reviews.map((review) => `Review ${review.review_number} · revision ${review.revision} · ${review.status} · ${review.requested_by}${review.decided_by ? ` → ${review.decided_by}` : ""}`).join("\n") || "No reviews requested";
   drawer.hidden = false;
   if (state.role !== "viewer") {
-    const command = window.prompt("Optional: 'request 2', 'approve 1', or 'reject 1'.");
-    const [action, number] = (command || "").trim().split(/\s+/);
-    if (action === "request") await api(`${base}/history/${Number(number)}/review`, { method: "POST", body: JSON.stringify({ note: "Requested in designer" }) });
-    if (state.role === "admin" && ["approve", "reject"].includes(action)) await api(`${base}/reviews/${Number(number)}/${action}`, { method: "POST", body: JSON.stringify({ note: `Decision in designer: ${action}` }) });
-    if (command) { designer.reviews = await api(`${base}/reviews`); renderDesigner(); notify("Review workflow updated"); }
+    const actions = [["request", "Request revision review"]];
+    if (state.role === "admin") actions.push(["approve", "Approve review"], ["reject", "Reject review"]);
+    const values = await openWorkflowDialog({ title: "Review workflow", description: "Request approval for a revision or decide an existing review.", fields: [
+      { name: "action", label: "Action", options: actions },
+      { name: "number", label: "Revision or review number", type: "number", min: 1, value: designer.revision || 1 },
+      { name: "note", label: "Review note", multiline: true, required: false, placeholder: "Optional decision context" },
+    ] });
+    if (values?.action === "request") await api(`${base}/history/${Number(values.number)}/review`, { method: "POST", body: JSON.stringify({ note: values.note }) });
+    if (state.role === "admin" && ["approve", "reject"].includes(values?.action)) await api(`${base}/reviews/${Number(values.number)}/${values.action}`, { method: "POST", body: JSON.stringify({ note: values.note }) });
+    if (values) { designer.reviews = await api(`${base}/reviews`); renderDesigner(); notify("Review workflow updated"); }
   }
   return designer.reviews;
 }
 
 async function runDesignerAutomation(base) {
-  const command = window.prompt("Enter 'clock 1000', 'event topic.name', 'template template-id', or 'promote simulation-id'.");
-  const [action, value] = (command || "").trim().split(/\s+/, 2);
-  if (!action) return null;
+  const values = await openWorkflowDialog({ title: "Scenario automation", description: "Run one deterministic orchestration action against the current scenario.", fields: [
+    { name: "action", label: "Automation", options: [["clock", "Advance virtual clock"], ["event", "Publish inbound event"], ["template", "Create reusable template"], ["promote", "Promote revision"]] },
+    { name: "value", label: "Milliseconds, topic, template ID, or target simulation", placeholder: "1000" },
+  ] });
+  if (!values) return null;
+  const { action, value } = values;
   let result;
   if (action === "clock") result = await api(`${base}/clock/advance`, { method: "POST", body: JSON.stringify({ milliseconds: Number(value) }) });
   if (action === "event") result = await api(`/simulations/${designer.simulationId}/events`, { method: "POST", body: JSON.stringify({ topic: value, payload: { synthetic: true, source: "designer" } }) });

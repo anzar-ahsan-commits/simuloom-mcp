@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.28.0 includes governed releases, promotion, templates, deterministic orchestration,
+SimuLoom v0.40.0 includes governed releases, promotion, templates, deterministic orchestration,
 observability, and bounded workspace backup/restore.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
@@ -31,6 +31,16 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | POST | `/api/v1/simulations/{simulation_id}/events` | operator | Publish an inbound orchestration event |
 | GET | `/api/v1/metrics` | viewer | Prometheus counters |
 | GET | `/api/v1/readiness` | viewer | Runtime and workspace readiness diagnostics |
+| GET | `/api/v1/readyz` | public | Minimal deployment readiness probe |
+| GET | `/api/v1/diagnostics` | admin | Platform, audit, metrics, workspace, and runtime diagnostics |
+| POST/GET | `/api/v1/workspaces` | admin/viewer | Create or list accessible team workspaces |
+| GET/PUT/DELETE | `/api/v1/workspaces/{workspace_id}/members/...` | member/admin | Inspect or manage memberships |
+| GET | `/api/v1/simulations/{simulation_id}/gitops` | viewer | Export an integrity-protected GitOps snapshot |
+| POST | `/api/v1/simulations/{simulation_id}/ai/scenarios/draft` | operator | Generate a validated, unsaved Ollama draft |
+| POST/GET | `/api/v1/jobs`, `/api/v1/jobs/{job_id}` | operator/viewer | Submit or inspect durable background jobs |
+| GET | `/api/v1/workspaces/{workspace_id}/jobs` | member | List workspace jobs |
+| POST/GET/DELETE | `/api/v1/workspaces/{workspace_id}/integrations/...` | member/admin | Manage and dispatch signed integrations |
+| PUT/GET/DELETE | `/api/v1/workspaces/{workspace_id}/secrets/...` | workspace admin | Rotate, list metadata, or delete encrypted secrets |
 | GET/POST | `/api/v1/workspace/backup`, `/api/v1/workspace/restore` | admin | Backup or merge-restore workspace |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/state` | viewer | Read live WireMock state |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/compile` | operator | Generate mappings |
@@ -65,6 +75,26 @@ curl --fail http://localhost:8000/api/v1/readiness \
 The response reports runtime connectivity, workspace writability, current and supported workspace
 schema versions, and simulation count. `status` is `ready` only when the runtime is reachable and
 the workspace is writable.
+
+## Modern platform controls
+
+The durable platform database uses WAL mode and explicit migrations. It stores team membership,
+job state, integration configuration, encrypted secrets, and low-cardinality counters. Existing
+file-backed simulations remain authoritative and backward compatible.
+
+GitOps snapshots contain stable hashes for the contract and every scenario definition. Validate
+them with `simuloom-gitops validate`; `simuloom-gitops diff` exits with status 1 when drift exists.
+
+Workspace secrets are write-only through the API: list operations return names and timestamps,
+never ciphertext or plaintext. Integration delivery requires exact hostname allowlisting, uses
+HTTPS by default, follows no redirects, signs the canonical body, and reuses its idempotency key
+for transient retries.
+
+The optional local AI endpoint sends approved operation identifiers, methods, paths, documented
+response codes, and the bounded operator intent to Ollama. It requests the exact scenario JSON
+schema at temperature 0, validates the response against both Pydantic and the approved contract,
+and returns it without saving. AI assistance has no tool, secret, filesystem, review, or deployment
+authority.
 
 ## Operator Console
 
