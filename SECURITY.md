@@ -14,11 +14,14 @@ issue, pull request, simulation bundle, or reproduction case.
 - Terminate TLS at a trusted reverse proxy or ingress.
 - Give users the lowest sufficient role and rotate credentials regularly.
 - Place WireMock's Admin API on a private network reachable only by SimuLoom.
+- Treat `/runtime` as service traffic: restrict it at the ingress if simulations must not be
+  publicly invokable. API-key middleware protects control-plane `/api/v1` and `/mcp` routes,
+  not the virtualized service façade.
 - Back up audit events to append-only or write-once storage for independent retention.
 
 ## Current security boundary
 
-SimuLoom v0.8 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.12 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.

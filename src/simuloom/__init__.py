@@ -1,3 +1,3 @@
 """SimuLoom: contract-driven service virtualization and test-data management."""
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"

@@ -6,6 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from simuloom.api.routes import router
+from simuloom.api.runtime import runtime_router
 from simuloom.container import access_controller, audit_log
 from simuloom.core.audit import AuditLog
 from simuloom.mcp.server import mcp
@@ -24,7 +25,7 @@ def create_app(
 ) -> FastAPI:
     application = FastAPI(
         title="SimuLoom",
-        version="0.11.0",
+        version="0.12.0",
         description="Contract-driven service virtualization, scenarios, and synthetic test data.",
         lifespan=lifespan,
     )
@@ -32,6 +33,7 @@ def create_app(
     selected_audit_log = request_audit_log or audit_log
     application.state.audit_log = selected_audit_log
     application.include_router(router)
+    application.include_router(runtime_router)
     application.mount("/mcp", mcp.streamable_http_app())
     application.add_middleware(
         AuthAuditMiddleware,

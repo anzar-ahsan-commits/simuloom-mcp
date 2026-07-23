@@ -117,7 +117,7 @@ class GenericWireMockClient:
     def __init__(self) -> None:
         self.cases: list[dict[str, Any]] = []
 
-    async def reset_runtime_state(self) -> None:
+    async def reset_runtime_state(self, simulation_id: str | None = None) -> None:
         return None
 
     async def execute(
@@ -126,6 +126,7 @@ class GenericWireMockClient:
         path: str,
         json_body: Any = None,
         headers: dict[str, str] | None = None,
+        simulation_id: str | None = None,
     ) -> RuntimeResponse:
         case = next(
             item for item in self.cases if item["method"] == method and item["path"] == path
@@ -134,7 +135,7 @@ class GenericWireMockClient:
         assert (headers or {}) == case["headers"]
         return RuntimeResponse(case["expectedStatus"], case["responseBody"], {}, 4.2)
 
-    async def serve_events(self) -> list[dict[str, Any]]:
+    async def serve_events(self, simulation_id: str | None = None) -> list[dict[str, Any]]:
         return []
 
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0 - Pluggable Runtime Adapters
+
+- Added a vendor-neutral mapping model and runtime adapter protocol.
+- Added runtime selection through `SIMULOOM_RUNTIME=wiremock|native`.
+- Added an in-process native runtime with simulation isolation, scenarios, delays, reset,
+  request matching, and a request journal.
+- Added a native HTTP façade at `/runtime/{simulation_id}/{path}`.
+- Added REST and MCP capability discovery while retaining legacy WireMock response fields.
+- Preserved WireMock as the default adapter and kept v0.11 APIs and artifacts compatible.
+
 ## 0.11.0 - Pairwise Test Generation
 
 - Added deterministic strength-two covering arrays for valid OpenAPI request values.

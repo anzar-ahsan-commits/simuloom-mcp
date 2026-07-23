@@ -202,6 +202,13 @@ def latest_evidence(simulation_id: str) -> str:
     return service.latest_report(simulation_id).model_dump_json(indent=2)
 
 
+@mcp.resource("runtime://current/capabilities", mime_type="application/json")
+def runtime_capabilities() -> str:
+    """Return the selected runtime adapter and its supported capabilities."""
+    require_current_role(Role.VIEWER)
+    return service.runtime.capabilities().model_dump_json(indent=2)
+
+
 @mcp.resource("simulation://{simulation_id}/portable-manifest", mime_type="application/yaml")
 def portable_manifest(simulation_id: str) -> str:
     """Return the versioned, Git-friendly simulation.yaml manifest."""

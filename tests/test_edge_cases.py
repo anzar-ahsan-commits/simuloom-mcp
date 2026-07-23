@@ -177,7 +177,7 @@ def test_validation_plan_is_opt_in_and_exposes_constraint_metadata(tmp_path: Pat
 class EdgeWireMock:
     base_url = "http://wiremock.test"
 
-    async def reset_runtime_state(self) -> None:
+    async def reset_runtime_state(self, simulation_id: str | None = None) -> None:
         return None
 
     async def execute(
@@ -186,6 +186,7 @@ class EdgeWireMock:
         path: str,
         json_body: Any = None,
         headers: dict[str, str] | None = None,
+        simulation_id: str | None = None,
     ) -> RuntimeResponse:
         del method, headers
         query = parse_qs(urlsplit(path).query)
@@ -200,7 +201,7 @@ class EdgeWireMock:
         body = {"id": "SYN-WIDGET-001"} if valid else {"code": "INVALID"}
         return RuntimeResponse(201 if valid else 400, body, {}, 1.0)
 
-    async def serve_events(self) -> list[dict[str, Any]]:
+    async def serve_events(self, simulation_id: str | None = None) -> list[dict[str, Any]]:
         return []
 
 

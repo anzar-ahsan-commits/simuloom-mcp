@@ -1,3 +1,4 @@
+from simuloom.adapters.native import NativeRuntimeAdapter
 from simuloom.adapters.wiremock import WireMockClient
 from simuloom.config import Settings
 from simuloom.core.audit import AuditLog
@@ -6,9 +7,14 @@ from simuloom.core.service import SimulationService
 from simuloom.security import AccessController
 
 settings = Settings.from_env()
+runtime = (
+    NativeRuntimeAdapter(settings.native_runtime_url)
+    if settings.runtime == "native"
+    else WireMockClient(settings.wiremock_url)
+)
 access_controller = AccessController(settings.auth_enabled, settings.api_keys_json)
 audit_log = AuditLog(settings.workspace / "audit" / "events.jsonl", settings.audit_signing_key)
 service = SimulationService(
     repository=WorkspaceRepository(settings.workspace),
-    wiremock=WireMockClient(settings.wiremock_url),
+    runtime=runtime,
 )
