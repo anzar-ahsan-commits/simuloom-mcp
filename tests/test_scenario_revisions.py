@@ -156,3 +156,41 @@ def test_mcp_revision_history_and_restore(revision_service: SimulationService, m
     assert history[0]["created_by"] == "mcp-editor"
     assert restored["revision"] == 3
     assert restored["definition"]["description"] == scenario_payload()["description"]
+
+
+def test_semantic_revision_comparison_via_rest_and_mcp(
+    revision_service: SimulationService, monkeypatch
+) -> None:
+    from simuloom.mcp import server as mcp_server
+
+    monkeypatch.setattr("simuloom.api.routes.service", revision_service)
+    monkeypatch.setattr(mcp_server, "service", revision_service)
+    simulation = revision_service.create("Compare revisions", contract())
+    first = ScenarioDefinition.model_validate(scenario_payload())
+    revision_service.configure_scenario(simulation.id, "order-lifecycle", first)
+    changed = scenario_payload()
+    changed["states"][0]["handlers"][0]["request"]["path"] = "/orders/changed"
+    changed["states"][1]["handlers"][0]["name"] = "inspect replacement"
+    revision_service.repository.write_scenario(simulation.id, "order-lifecycle", changed)
+    revision_service.get_scenario(simulation.id, "order-lifecycle")
+    path = f"/api/v1/simulations/{simulation.id}/scenarios/order-lifecycle/history/compare"
+    client = TestClient(app)
+    try:
+        response = client.get(path, params={"from_revision": 1, "to_revision": 2})
+    finally:
+        client.close()
+    token = _current_principal.set(Principal("viewer", Role.VIEWER, None))
+    try:
+        mcp_result = mcp_server.compare_scenario_revisions(simulation.id, "order-lifecycle", 1, 2)
+    finally:
+        _current_principal.reset(token)
+
+    assert response.status_code == 200
+    assert response.json() == mcp_result
+    assert mcp_result["change_count"] == 3
+    assert mcp_result["breaking_change_count"] == 2
+    assert {change["kind"] for change in mcp_result["changes"]} == {
+        "modified",
+        "removed",
+        "added",
+    }

@@ -125,6 +125,15 @@ curl -sS -X PUT "$SCENARIO_URL" -H 'Content-Type: application/json' \
 curl -sS "$SCENARIO_URL/history" | jq .
 ```
 
+Compare two saved revisions, deploy an exact revision, and inspect or roll back releases:
+
+```bash
+curl -sS "$SCENARIO_URL/history/compare?from_revision=1&to_revision=2" | jq .
+curl -sS -X POST "$SCENARIO_URL/history/1/deploy" | jq .
+curl -sS "$SCENARIO_URL/releases" | jq .
+curl -sS -X POST "$SCENARIO_URL/releases/1/rollback" | jq .
+```
+
 Generate and execute evidence for every reachable state and transition:
 
 ```bash

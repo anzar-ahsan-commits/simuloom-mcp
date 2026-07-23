@@ -90,8 +90,10 @@ def activate_profile(
 @mcp.tool()
 async def deploy_simulation(simulation_id: str, reset_existing: bool = False) -> dict:
     """Deploy compiled mappings to the configured WireMock Admin API."""
-    require_current_role(Role.ADMIN if reset_existing else Role.OPERATOR)
-    return (await service.deploy(simulation_id, reset_existing)).model_dump()
+    principal = require_current_role(Role.ADMIN if reset_existing else Role.OPERATOR)
+    return (
+        await service.deploy(simulation_id, reset_existing, actor=principal.subject)
+    ).model_dump()
 
 
 @mcp.tool()
@@ -170,6 +172,20 @@ def scenario_history(simulation_id: str, scenario_id: str) -> list[dict]:
 
 
 @mcp.tool()
+def compare_scenario_revisions(
+    simulation_id: str,
+    scenario_id: str,
+    from_revision: int,
+    to_revision: int,
+) -> dict:
+    """Compare two immutable scenario revisions and flag breaking changes."""
+    require_current_role(Role.VIEWER)
+    return service.compare_scenario_revisions(
+        simulation_id, scenario_id, from_revision, to_revision
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
 def restore_scenario_revision(
     simulation_id: str,
     scenario_id: str,
@@ -207,10 +223,39 @@ def compile_scenario(simulation_id: str, scenario_id: str) -> dict:
 
 
 @mcp.tool()
-async def deploy_scenario(simulation_id: str, scenario_id: str) -> dict:
+async def deploy_scenario(
+    simulation_id: str, scenario_id: str, revision: int | None = None
+) -> dict:
     """Compile, deploy, and initialize one configured scenario."""
-    require_current_role(Role.OPERATOR)
-    return (await service.deploy_scenario(simulation_id, scenario_id)).model_dump(mode="json")
+    principal = require_current_role(Role.OPERATOR)
+    return (
+        await service.deploy_scenario(
+            simulation_id, scenario_id, actor=principal.subject, revision=revision
+        )
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def scenario_releases(simulation_id: str, scenario_id: str) -> list[dict]:
+    """List immutable scenario deployment records, newest first."""
+    require_current_role(Role.VIEWER)
+    return [
+        item.model_dump(mode="json")
+        for item in service.scenario_releases(simulation_id, scenario_id)
+    ]
+
+
+@mcp.tool()
+async def rollback_scenario_release(
+    simulation_id: str, scenario_id: str, release_number: int
+) -> dict:
+    """Redeploy a prior release's exact revision and record a new release."""
+    principal = require_current_role(Role.OPERATOR)
+    return (
+        await service.rollback_scenario_release(
+            simulation_id, scenario_id, release_number, principal.subject
+        )
+    ).model_dump(mode="json")
 
 
 @mcp.tool()
@@ -283,6 +328,22 @@ def scenario_revision_history(simulation_id: str, scenario_id: str) -> str:
         [
             item.model_dump(mode="json")
             for item in service.scenario_history(simulation_id, scenario_id)
+        ],
+        indent=2,
+    )
+
+
+@mcp.resource(
+    "scenario://{simulation_id}/{scenario_id}/releases",
+    mime_type="application/json",
+)
+def scenario_release_history(simulation_id: str, scenario_id: str) -> str:
+    """Return immutable deployment records as a read-only resource."""
+    require_current_role(Role.VIEWER)
+    return json.dumps(
+        [
+            item.model_dump(mode="json")
+            for item in service.scenario_releases(simulation_id, scenario_id)
         ],
         indent=2,
     )

@@ -12,6 +12,7 @@ const designer = {
   revision: null,
   etag: null,
   savedSnapshot: null,
+  releases: [],
 };
 
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -72,9 +73,10 @@ function renderDesignerEmpty() {
 async function loadScenario(scenarioId, force = false) {
   if (!force && scenarioId !== designer.scenarioId && !confirmDesignerDiscard()) return;
   try {
-    const [view, diagnostics] = await Promise.all([
+    const [view, diagnostics, releases] = await Promise.all([
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}`),
       api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}/diagnostics`),
+      api(`/simulations/${designer.simulationId}/scenarios/${scenarioId}/releases`),
     ]);
     designer.scenarioId = scenarioId;
     designer.definition = structuredClone(view.definition);
@@ -84,6 +86,7 @@ async function loadScenario(scenarioId, force = false) {
     designer.revision = view.revision;
     designer.etag = view.etag;
     designer.savedSnapshot = JSON.stringify(view.definition);
+    designer.releases = releases;
     renderDesignerScenarioList();
     renderDesigner();
   } catch (error) {
@@ -119,6 +122,7 @@ function createScenarioDraft(metadata) {
   designer.revision = null;
   designer.etag = null;
   designer.savedSnapshot = null;
+  designer.releases = [];
   renderDesignerScenarioList();
   renderDesigner();
 }
@@ -153,8 +157,9 @@ function renderDesigner() {
   const definition = designer.definition;
   const readOnly = state.role === "viewer";
   $("#designer-workspace").innerHTML = `<div class="designer-toolbar">
-    <div class="designer-toolbar-title"><p class="eyebrow">${escapeHtml(designer.scenarioId)}${designer.revision ? ` · revision ${designer.revision}` : " · unsaved"}${designerIsDirty() ? " · modified" : ""}${readOnly ? " · read only" : ""}</p><h2>${escapeHtml(definition.name)}</h2></div>
+    <div class="designer-toolbar-title"><p class="eyebrow">${escapeHtml(designer.scenarioId)}${designer.revision ? ` · revision ${designer.revision}` : " · unsaved"}${designer.releases.length ? ` · release ${designer.releases[0].release_number} runs revision ${designer.releases[0].revision}` : " · not deployed"}${designerIsDirty() ? " · modified" : ""}${readOnly ? " · read only" : ""}</p><h2>${escapeHtml(definition.name)}</h2></div>
     <button class="button ghost" data-designer-action="history">History</button>
+    <button class="button ghost" data-designer-action="releases">Releases</button>
     <button class="button ghost" data-designer-action="export">Export</button>
     <button class="button" data-designer-action="save" data-designer-mutate>Save</button>
     <button class="button" data-designer-action="compile" data-designer-mutate>Compile</button>
@@ -362,6 +367,7 @@ async function runDesignerAction(button) {
     let result;
     if (action === "save") result = await saveDesignerScenario(base);
     if (action === "history") return await showScenarioHistory(base);
+    if (action === "releases") return await showScenarioReleases(base);
     if (action === "compile") result = await api(`${base}/compile`, { method: "POST" });
     if (action === "deploy") result = await api(`${base}/deploy`, { method: "POST" });
     if (action === "runtime") result = await api(`${base}/state`);
@@ -378,6 +384,10 @@ async function runDesignerAction(button) {
       designer.diagnostics = await api(`${base}/diagnostics`);
       designer.scenarios = await api(`/simulations/${designer.simulationId}/scenarios`);
       renderDesignerScenarioList(); renderDesigner();
+    }
+    if (action === "deploy") {
+      designer.releases = await api(`${base}/releases`);
+      renderDesigner();
     }
   } catch (error) {
     if (action === "save" && error.status === 409) await resolveDesignerConflict(base, error);
@@ -423,11 +433,54 @@ async function showScenarioHistory(base) {
   $("strong", drawer).textContent = "Revision history";
   $("pre", drawer).textContent = history.map((item) => `Revision ${item.revision} · ${item.created_by} · ${new Date(item.created_at).toLocaleString()} · ${item.state_count} states`).join("\n");
   drawer.hidden = false;
-  if (state.role !== "viewer" && history.length > 1) {
-    const requested = window.prompt("Enter a revision number to restore, or leave blank to only inspect history:");
-    if (requested) await restoreDesignerRevision(base, Number(requested));
+  if (history.length > 1) {
+    const requested = window.prompt("Optional: enter 'compare 1 2', 'deploy 1', or 'restore 1'.");
+    const [action, first, second] = (requested || "").trim().split(/\s+/);
+    if (action === "compare") await compareDesignerRevisions(base, Number(first), Number(second));
+    if (state.role !== "viewer" && action === "deploy") await deployDesignerRevision(base, Number(first));
+    if (state.role !== "viewer" && action === "restore") await restoreDesignerRevision(base, Number(first));
   }
   return history;
+}
+
+async function compareDesignerRevisions(base, fromRevision, toRevision) {
+  if (![fromRevision, toRevision].every((value) => Number.isInteger(value) && value > 0)) return notify("Comparison requires two positive revision numbers", true);
+  const comparison = await api(`${base}/history/compare?from_revision=${fromRevision}&to_revision=${toRevision}`);
+  const drawer = $("#designer-result");
+  $("strong", drawer).textContent = `Revision ${fromRevision} → ${toRevision}`;
+  $("pre", drawer).textContent = comparison.changes.map((change) => `${change.breaking ? "BREAKING " : ""}${change.kind.toUpperCase()} ${change.path}`).join("\n") || "No changes";
+  drawer.hidden = false;
+}
+
+async function deployDesignerRevision(base, revision) {
+  if (!Number.isInteger(revision) || revision < 1) return notify("Revision must be a positive number", true);
+  if (!window.confirm(`Deploy immutable revision ${revision}?`)) return;
+  const result = await api(`${base}/history/${revision}/deploy`, { method: "POST" });
+  designer.releases = await api(`${base}/releases`);
+  renderDesigner();
+  notify(`Revision ${revision} deployed as release ${result.release_number}`);
+}
+
+async function showScenarioReleases(base) {
+  designer.releases = await api(`${base}/releases`);
+  const drawer = $("#designer-result");
+  $("strong", drawer).textContent = "Deployment releases";
+  $("pre", drawer).textContent = designer.releases.map((release) => `Release ${release.release_number} · revision ${release.revision} · ${release.deployed_by} · ${new Date(release.deployed_at).toLocaleString()}${release.source_release ? ` · rollback of ${release.source_release}` : ""}`).join("\n") || "No releases deployed";
+  drawer.hidden = false;
+  if (state.role !== "viewer" && designer.releases.length) {
+    const requested = window.prompt("Enter a release number to roll back, or leave blank to inspect only:");
+    if (requested) await rollbackDesignerRelease(base, Number(requested));
+  }
+  return designer.releases;
+}
+
+async function rollbackDesignerRelease(base, releaseNumber) {
+  if (!Number.isInteger(releaseNumber) || releaseNumber < 1) return notify("Release must be a positive number", true);
+  if (!window.confirm(`Roll back by redeploying release ${releaseNumber}?`)) return;
+  const result = await api(`${base}/releases/${releaseNumber}/rollback`, { method: "POST" });
+  designer.releases = await api(`${base}/releases`);
+  renderDesigner();
+  notify(`Rollback recorded as release ${result.release_number}`);
 }
 
 async function restoreDesignerRevision(base, revision) {

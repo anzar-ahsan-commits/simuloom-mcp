@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 - Scenario Release Management
+
+- Added semantic revision comparison with explicit breaking-change indicators.
+- Added immutable deployment records pinning revision, ETag, mapping fingerprint, actor, and time.
+- Added exact-revision deployment and rollback-as-a-new-release through REST and MCP.
+- Updated runtime state and reset behavior to follow the deployed revision rather than a newer draft.
+- Added designer revision comparison, release visibility, exact deployment, and rollback controls.
+
 ## 0.16.0 - Safe Scenario Editing
 
 - Added immutable scenario revision history with author and timestamp metadata.
