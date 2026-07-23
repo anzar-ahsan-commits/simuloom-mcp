@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/codeql.yml)
+[![PyPI](https://img.shields.io/pypi/v/simuloom-mcp.svg)](https://pypi.org/project/simuloom-mcp/)
+[![GitHub Release](https://img.shields.io/github/v/release/anzar-ahsan-commits/simuloom-mcp)](https://github.com/anzar-ahsan-commits/simuloom-mcp/releases/latest)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -11,8 +13,8 @@ the same deterministic application services are available through REST and MCP.
 
 > Status: public beta (`v0.42.0`). All example records are fictional and synthetic.
 
-Start with the [technical guide](docs/technical-guide.md), review the
-[public-launch runbook](docs/public-launch.md), or see [contribution guidance](CONTRIBUTING.md).
+Start with the [five-minute public-beta walkthrough](docs/launch.md), continue with the
+[technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md).
 
 ## What works in this milestone
 
