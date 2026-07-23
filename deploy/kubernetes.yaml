@@ -36,7 +36,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: simuloom
-          image: ghcr.io/replace-me/simuloom-mcp:0.40.0
+          image: ghcr.io/replace-me/simuloom-mcp:0.41.0
           ports:
             - {name: http, containerPort: 8000}
           envFrom:

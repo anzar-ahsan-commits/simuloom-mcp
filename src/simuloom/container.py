@@ -35,7 +35,11 @@ integration_dispatcher = IntegrationDispatcher(
 )
 secret_vault = SecretVault(settings.secrets_master_key)
 ai_assistant = ScenarioAIAssistant(
-    settings.ai_enabled,
+    (
+        platform_store.get_setting("ai.enabled") == "true"
+        if platform_store.get_setting("ai.enabled") is not None
+        else settings.ai_enabled
+    ),
     settings.ai_base_url,
     settings.ai_model,
 )

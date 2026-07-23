@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/ui/assets/styles.css">
   <script src="/ui/assets/app.js" defer></script>
   <script src="/ui/assets/designer.js" defer></script>
+  <script src="/ui/assets/copilot.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to workspace</a>
@@ -23,11 +24,12 @@
         <button class="nav-item" data-view="simulations"><span>02</span> Simulations</button>
         <button class="nav-item" data-view="scenarios"><span>03</span> Scenarios</button>
         <button class="nav-item" data-view="workspaces"><span>04</span> Team Hub</button>
-        <a class="nav-item" href="/docs"><span>05</span> API reference</a>
+        <button class="nav-item" data-view="copilot"><span>05</span> AI Copilot</button>
+        <a class="nav-item" href="/docs"><span>06</span> API reference</a>
       </nav>
       <div class="sidebar-foot">
         <div class="runtime-mini"><i id="sidebar-runtime-dot"></i><span id="sidebar-runtime">Connecting</span></div>
-        <small>SimuLoom v0.40.0</small>
+        <small>SimuLoom v0.41.0</small>
       </div>
     </aside>
 
@@ -105,6 +107,34 @@
           <div id="workspace-card-grid" class="workspace-card-grid"></div>
           <div id="workspace-hub-detail" class="workspace-hub-detail"><p>Select a workspace to inspect members, jobs, integrations, and secret metadata.</p></div>
         </section>
+      </section>
+
+      <section id="copilot-view" class="view" aria-label="AI operations copilot">
+        <div class="copilot-shell panel">
+          <aside class="copilot-sidebar">
+            <div class="panel-heading compact"><div><p class="eyebrow">Local and private</p><h2>Conversations</h2></div></div>
+            <div class="copilot-new">
+              <label>Simulation<select id="copilot-simulation"><option value="">Select a simulation</option></select></label>
+              <button class="button primary" id="new-chat-button">New conversation</button>
+            </div>
+            <div id="copilot-thread-list" class="simulation-list"></div>
+          </aside>
+          <section class="copilot-main">
+            <header class="copilot-header">
+              <div><p class="eyebrow">Human-approved operations</p><h2 id="copilot-title">SimuLoom Copilot</h2></div>
+              <div class="copilot-settings"><span class="status" id="copilot-ai-status">Checking AI</span><button class="button ghost" id="copilot-ai-toggle" type="button">AI settings</button></div>
+            </header>
+            <div id="copilot-messages" class="copilot-messages" aria-live="polite">
+              <div class="copilot-welcome"><span>AI</span><h3>Ask about a real simulation</h3><p>I can explain contracts and scenarios, diagnose likely workflow gaps, and propose bounded actions. Nothing executes until an operator approves it.</p></div>
+            </div>
+            <form id="copilot-form" class="copilot-composer">
+              <label class="sr-only" for="copilot-input">Message</label>
+              <textarea id="copilot-input" maxlength="4000" placeholder="Ask what the simulation supports, why a scenario is failing, or what to do next…" required></textarea>
+              <button class="button primary" type="submit">Send</button>
+              <small>Local AI can make mistakes. Review proposed operations before approval.</small>
+            </form>
+          </section>
+        </div>
       </section>
     </main>
   </div>

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.41.0 - AI Operations Copilot
+
+- Added persistent, simulation-grounded local-AI conversations in the REST API and console.
+- Added strict structured responses with bounded context and capped recent message history.
+- Added inert action proposals for data generation, compilation, deployment, and scenario reset.
+- Added explicit operator approval or rejection, ownership isolation, argument revalidation, and
+  persistent action outcomes.
+- Added MCP conversation and approval tools plus a read-only conversation resource.
+- Added a responsive Copilot UI with risk labels and role-aware controls.
+- Added an admin-only, restart-persistent AI enable/disable control in the Copilot UI.
+- Advanced the durable platform schema to v4 and added chat safety and authorization tests.
+
 ## 0.40.0 - Local AI and Operational Resilience
 
 - Added opt-in Ollama structured-output scenario drafting with contract validation and no mutation

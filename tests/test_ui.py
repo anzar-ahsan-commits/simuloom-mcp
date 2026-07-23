@@ -13,6 +13,7 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
         console = client.get("/ui")
         script = client.get("/ui/assets/app.js")
         designer = client.get("/ui/assets/designer.js")
+        copilot = client.get("/ui/assets/copilot.js")
         styles = client.get("/ui/assets/styles.css")
     finally:
         client.close()
@@ -42,7 +43,18 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
     assert "window.prompt" not in designer.text
     assert 'id="workflow-dialog"' in console.text
     assert 'id="workspaces-view"' in console.text
+    assert 'data-view="copilot"' in console.text
+    assert 'id="copilot-messages"' in console.text
+    assert "Nothing executes until an operator approves it" in console.text
     assert "loadWorkspaceHubDetail" in script.text
+    assert copilot.status_code == 200
+    assert "decideCopilotAction" in copilot.text
+    assert "/ai/chat/actions/" in copilot.text
+    assert 'sessionStorage.getItem("simuloom-copilot-thread")' in copilot.text
+    assert "rememberCopilotThread" in copilot.text
+    assert 'api("/ai/settings")' in copilot.text
+    assert "toggleCopilotAI" in copilot.text
+    assert 'id="copilot-ai-toggle"' in console.text
     assert "innerHTML = definition" not in designer.text
     assert styles.status_code == 200
     assert "--accent" in styles.text

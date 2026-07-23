@@ -43,7 +43,23 @@ def test_platform_store_reopens_without_reapplying_migrations(tmp_path: Path) ->
 
     assert second.schema_version() == PLATFORM_SCHEMA_VERSION
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+        assert (
+            connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
+            == PLATFORM_SCHEMA_VERSION
+        )
+
+
+def test_platform_setting_persists_across_restarts(tmp_path: Path) -> None:
+    path = tmp_path / "platform.db"
+    first = PlatformStore(path)
+    first.set_setting("ai.enabled", "true")
+    first.close()
+
+    second = PlatformStore(path)
+    try:
+        assert second.get_setting("ai.enabled") == "true"
+    finally:
+        second.close()
 
 
 def test_platform_store_rejects_newer_schema(tmp_path: Path) -> None:
