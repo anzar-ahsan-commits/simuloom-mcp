@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from simuloom.api.routes import router
 from simuloom.api.runtime import runtime_router
@@ -11,6 +12,7 @@ from simuloom.container import access_controller, audit_log
 from simuloom.core.audit import AuditLog
 from simuloom.mcp.server import mcp
 from simuloom.security import AccessController, AuthAuditMiddleware
+from simuloom.ui.router import STATIC_ROOT, ConsoleSecurityHeadersMiddleware, ui_router
 
 
 @asynccontextmanager
@@ -25,7 +27,7 @@ def create_app(
 ) -> FastAPI:
     application = FastAPI(
         title="SimuLoom",
-        version="0.13.0",
+        version="0.14.0",
         description="Contract-driven service virtualization, scenarios, and synthetic test data.",
         lifespan=lifespan,
     )
@@ -34,12 +36,15 @@ def create_app(
     application.state.audit_log = selected_audit_log
     application.include_router(router)
     application.include_router(runtime_router)
+    application.include_router(ui_router)
+    application.mount("/ui/assets", StaticFiles(directory=STATIC_ROOT), name="console-assets")
     application.mount("/mcp", mcp.streamable_http_app())
     application.add_middleware(
         AuthAuditMiddleware,
         controller=selected_controller,
         audit_log=selected_audit_log,
     )
+    application.add_middleware(ConsoleSecurityHeadersMiddleware)
     return application
 
 

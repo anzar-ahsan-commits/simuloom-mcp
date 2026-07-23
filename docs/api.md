@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.13.0 adds durable SQLite storage to the vendor-neutral native runtime.
+SimuLoom v0.14.0 adds the bundled Operator Console and its additive dashboard APIs.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -16,6 +16,9 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/reset` | operator | Reset one managed scenario |
 | POST | `/api/v1/scenarios/reset` | admin | Reset every scenario in the shared WireMock runtime |
 | GET | `/api/v1/runtime` | viewer | Discover the selected adapter and its capabilities |
+| GET | `/api/v1/session` | viewer | Discover the current subject and role for UI controls |
+| GET | `/api/v1/simulations` | viewer | List dashboard-ready simulation summaries |
+| POST | `/api/v1/simulations/from-contract` | operator | Create from a YAML/JSON multipart upload |
 
 When `SIMULOOM_RUNTIME=native`, deployed virtual endpoints are served at
 `/runtime/{simulation_id}/{service_path}` with the methods declared by their mappings. This
@@ -23,6 +26,17 @@ service-traffic façade is intentionally outside control-plane API-key middlewar
 restrict it separately at the ingress.
 
 The OpenAPI UI at `/docs` contains complete generated request and response schemas.
+
+## Operator Console
+
+The console is served at `/ui` and its same-origin assets at `/ui/assets`. The static shell is
+public so it can present credential entry, but every data request uses the authenticated
+`/api/v1` API. Uploaded contracts are limited to 2 MiB, parsed with safe YAML loading, required
+to be mapping objects, and passed through the same OpenAPI analysis used by JSON creation.
+
+Console responses use a strict same-origin Content Security Policy, deny framing and MIME
+sniffing, and send no referrer. Entered API keys use browser session storage rather than
+persistent local storage. There are no third-party browser dependencies.
 
 ## Definition rules
 

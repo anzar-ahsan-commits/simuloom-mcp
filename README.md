@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.13.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.14.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -37,12 +37,14 @@ the same deterministic application services are available through REST and MCP.
 - Deploy mappings to the default WireMock adapter or the in-process native runtime.
 - Discover the selected runtime and its capabilities through REST and MCP.
 - Persist native mappings, scenario state, and bounded journals across restarts with SQLite.
+- Operate the core simulation workflow from a bundled, role-aware web console.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
+    U[Operator Console] --> A
     A[REST clients] --> C[Shared application services]
     B[MCP clients] --> C
     C --> D[Contract compiler]
@@ -61,6 +63,7 @@ docker compose up --build
 ```
 
 - REST and Swagger UI: `http://localhost:8000/docs`
+- Operator Console: `http://localhost:8000/ui`
 - MCP Streamable HTTP: `http://localhost:8000/mcp`
 - WireMock runtime: `http://localhost:8080`
 
@@ -91,6 +94,18 @@ Native storage defaults to SQLite at `workspace/runtime/native.db`. Set
 `SIMULOOM_NATIVE_RUNTIME_STORE=memory` for an ephemeral run, or configure
 `SIMULOOM_NATIVE_RUNTIME_DB` and `SIMULOOM_NATIVE_JOURNAL_LIMIT` (default `1000` events per
 simulation). Capability discovery reports the active storage mode and retention limit.
+
+## Operator Console
+
+Open `http://localhost:8000/ui` after starting SimuLoom. The console can upload a bounded
+OpenAPI YAML/JSON contract, list and inspect workspaces, generate data, compile and deploy,
+activate profiles, preview and execute validation, inspect evidence, export bundles, and
+inspect or reset scenario state.
+
+When authentication is enabled, select **API key** and enter a viewer, operator, or admin key.
+The key is kept in browser `sessionStorage`, which is isolated to the current tab and cleared
+when that tab closes. Viewer sessions can inspect and plan; mutation controls require operator
+or admin access. The console has no external scripts, fonts, analytics, or CDN dependency.
 
 ## Authentication and roles
 
@@ -133,6 +148,8 @@ field in these calls:
 ```text
 POST /api/v1/contracts/analyze
 POST /api/v1/simulations
+GET  /api/v1/simulations
+POST /api/v1/simulations/from-contract
 POST /api/v1/simulations/{id}/data
 GET  /api/v1/simulations/{id}/data
 POST /api/v1/simulations/{id}/compile
@@ -156,6 +173,7 @@ POST /api/v1/simulations/import
 GET  /api/v1/audit/events
 GET  /api/v1/audit/verify
 GET  /api/v1/runtime
+GET  /api/v1/session
 ```
 
 The simulation creation request shape is:

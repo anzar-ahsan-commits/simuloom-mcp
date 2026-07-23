@@ -53,6 +53,7 @@ from simuloom.models import (
     ScenarioRuntimeState,
     ScenarioView,
     Simulation,
+    SimulationSummary,
     ValidationPlan,
     ValidationPlanCase,
 )
@@ -82,6 +83,28 @@ class SimulationService:
 
     def get(self, simulation_id: str) -> dict[str, Any]:
         return self.repository.read_json(simulation_id, "simulation.json")
+
+    def list_simulations(self) -> list[SimulationSummary]:
+        simulations: list[SimulationSummary] = []
+        for simulation_id in self.repository.simulation_ids():
+            metadata = self.repository.read_json(simulation_id, "simulation.json")
+            contract = self.repository.read_json(simulation_id, "contract.json")
+            summary = self.analyze(contract)
+            root = self.repository.path(simulation_id)
+            simulations.append(
+                SimulationSummary(
+                    id=simulation_id,
+                    name=metadata["name"],
+                    fingerprint=metadata["fingerprint"],
+                    status=metadata["status"],
+                    operation_count=len(summary.operations),
+                    active_profile=metadata.get("activeProfile", "normal"),
+                    scenario_count=len(self.repository.read_scenarios(simulation_id)),
+                    has_dataset=(root / "datasets" / "metadata.json").is_file(),
+                    has_report=(root / "reports" / "latest.json").is_file(),
+                )
+            )
+        return simulations
 
     def configure_scenario(
         self, simulation_id: str, scenario_id: str, definition: ScenarioDefinition

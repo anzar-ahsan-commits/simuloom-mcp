@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SimuLoom service virtualization operator console">
+  <title>SimuLoom Console</title>
+  <link rel="icon" href="/ui/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/ui" aria-label="SimuLoom home">
+        <span class="brand-mark" aria-hidden="true">SL</span>
+        <span><strong>SimuLoom</strong><small>Operator Console</small></span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <button class="nav-item active" data-view="overview"><span>01</span> Overview</button>
+        <button class="nav-item" data-view="simulations"><span>02</span> Simulations</button>
+        <a class="nav-item" href="/docs"><span>03</span> API reference</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="runtime-mini"><i id="sidebar-runtime-dot"></i><span id="sidebar-runtime">Connecting</span></div>
+        <small>SimuLoom v0.14.0</small>
+      </div>
+    </aside>
+
+    <main id="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Service virtualization workspace</p>
+          <h1 id="page-title">Operational overview</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="button ghost" id="auth-button">API key</button>
+          <button class="button primary" id="new-simulation-button">New simulation</button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section id="overview-view" class="view active" aria-labelledby="page-title">
+        <div class="metric-grid">
+          <article class="metric-card accent"><span>Runtime</span><strong id="runtime-name">—</strong><small id="runtime-storage">Awaiting connection</small></article>
+          <article class="metric-card"><span>Simulations</span><strong id="simulation-count">—</strong><small>Managed workspaces</small></article>
+          <article class="metric-card"><span>Evidence</span><strong id="report-count">—</strong><small>Reports available</small></article>
+          <article class="metric-card"><span>Runtime health</span><strong id="runtime-health">—</strong><small id="runtime-detail">Checking adapter</small></article>
+        </div>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Recent workspaces</p><h2>Simulations</h2></div>
+            <button class="text-button" id="refresh-button">Refresh data</button>
+          </div>
+          <div id="simulation-grid" class="simulation-grid" aria-live="polite"></div>
+          <div id="empty-state" class="empty-state" hidden>
+            <div class="empty-icon">＋</div><h3>No simulations yet</h3>
+            <p>Upload an approved OpenAPI contract to build your first deterministic virtual service.</p>
+            <button class="button primary" id="empty-create-button">Create simulation</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="simulations-view" class="view" aria-label="Simulation workspace">
+        <div class="workspace-grid">
+          <aside class="panel simulation-list-panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">Workspace</p><h2>Simulations</h2></div></div>
+            <div id="simulation-list" class="simulation-list"></div>
+          </aside>
+          <div id="simulation-detail" class="panel detail-panel">
+            <div class="detail-empty"><span>SL</span><h2>Select a simulation</h2><p>Choose a workspace to generate, compile, deploy, and validate.</p></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="create-dialog">
+    <form id="create-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Approved source</p><h2>Create simulation</h2></div><button class="icon-button" type="button" data-close="create-dialog" aria-label="Close">×</button></div>
+      <label>Simulation name<input name="name" minlength="3" maxlength="80" required placeholder="Order lifecycle staging"></label>
+      <label>OpenAPI YAML or JSON<input name="contract" type="file" accept=".yaml,.yml,.json,application/yaml,application/json" required></label>
+      <p class="field-help">Maximum 2 MiB. The contract is validated before a workspace is created.</p>
+      <div class="dialog-actions"><button class="button ghost" type="button" data-close="create-dialog">Cancel</button><button class="button primary" type="submit">Create workspace</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="auth-dialog">
+    <form id="auth-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Session credentials</p><h2>API key</h2></div><button class="icon-button" type="button" data-close="auth-dialog" aria-label="Close">×</button></div>
+      <label>Bearer or API key<input id="api-key-input" type="password" autocomplete="off" placeholder="Leave blank when authentication is disabled"></label>
+      <p class="field-help">Stored only in this browser tab and cleared when the tab closes.</p>
+      <div class="dialog-actions"><button class="button danger-text" id="clear-key-button" type="button">Clear key</button><button class="button primary" type="submit">Use for this session</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0 - Operator Console
+
+- Added a bundled responsive operator console at `/ui` with no frontend build dependency.
+- Added runtime health, simulation summaries, contract upload, and workflow controls.
+- Added generate, compile, deploy, profile, validation, evidence, export, and scenario actions.
+- Added session role discovery and viewer-aware control disabling.
+- Added bounded YAML/JSON OpenAPI uploads and simulation-listing REST endpoints.
+- Added strict console CSP, framing, MIME-sniffing, and referrer security headers.
+- Added console API, static asset, authentication-boundary, and end-to-end workflow tests.
+
 ## 0.13.0 - Durable Native Runtime
 
 - Added SQLite-backed persistence for native mappings, scenario state, and request journals.
