@@ -62,8 +62,8 @@ class WorkspaceReadiness(BaseModel):
     workspace_writable: bool
     simulation_count: int = Field(ge=0)
     platform_store_ready: bool = True
-    platform_schema_version: int = Field(default=4, ge=1)
-    supported_platform_schema_version: int = Field(default=4, ge=1)
+    platform_schema_version: int = Field(default=5, ge=1)
+    supported_platform_schema_version: int = Field(default=5, ge=1)
 
 
 class TeamWorkspaceCreate(BaseModel):
@@ -214,9 +214,21 @@ class AIChatThread(BaseModel):
     simulation_id: str
     title: str
     owner: str
+    archived: bool = False
     created_at: datetime
     updated_at: datetime
     messages: list[AIChatMessage] = Field(default_factory=list)
+
+
+class AIChatThreadUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=120)
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> AIChatThreadUpdate:
+        if self.title is None and self.archived is None:
+            raise ValueError("At least one conversation field must be updated")
+        return self
 
 
 class AISettingsUpdate(BaseModel):
@@ -229,6 +241,10 @@ class AISettingsView(BaseModel):
     model: str
     base_url: str
     persisted: bool
+    reachable: bool
+    model_available: bool
+    status: Literal["disabled", "unreachable", "model-missing", "ready"]
+    response_time_ms: float | None = None
 
 
 class DataGenerationRequest(BaseModel):

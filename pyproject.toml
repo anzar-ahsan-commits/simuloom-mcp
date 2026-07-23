@@ -4,12 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simuloom-mcp"
-version = "0.41.0"
+version = "0.42.0"
 description = "Contract-driven service virtualization and synthetic test-data control plane exposed through REST and MCP."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Anzar Ahsan" }]
+keywords = ["service-virtualization", "openapi", "wiremock", "mcp", "synthetic-data"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: FastAPI",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Testing",
+]
 dependencies = [
   "fastapi>=0.116,<1",
   "uvicorn[standard]>=0.35,<1",
@@ -32,6 +41,12 @@ dev = [
 [project.scripts]
 simuloom = "simuloom.main:run"
 simuloom-gitops = "simuloom.gitops_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/anzar-ahsan-commits/simuloom-mcp"
+Documentation = "https://github.com/anzar-ahsan-commits/simuloom-mcp#readme"
+Issues = "https://github.com/anzar-ahsan-commits/simuloom-mcp/issues"
+Changelog = "https://github.com/anzar-ahsan-commits/simuloom-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simuloom"]

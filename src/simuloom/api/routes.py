@@ -38,6 +38,7 @@ from simuloom.models import (
     AIChatMessageCreate,
     AIChatThread,
     AIChatThreadCreate,
+    AIChatThreadUpdate,
     AISettingsUpdate,
     AISettingsView,
     CompileResult,
@@ -165,6 +166,34 @@ def _ai_simulation_context(simulation_id: str) -> dict:
                 ),
             }
         )
+    evidence = None
+    try:
+        report = service.latest_report(simulation_id)
+        failures = [item for item in report.results if not item.passed][:10]
+        evidence = {
+            "report_id": report.report_id,
+            "status": report.status,
+            "generated_at": report.generated_at.isoformat(),
+            "summary": report.summary.model_dump(mode="json"),
+            "coverage": {
+                "operations": report.operation_coverage.model_dump(mode="json"),
+                "scenarios": report.scenario_coverage.model_dump(mode="json"),
+                "states": report.state_coverage.model_dump(mode="json"),
+                "transitions": report.transition_coverage.model_dump(mode="json"),
+            },
+            "failures": [
+                {
+                    "name": item.name,
+                    "operation_id": item.operation_id,
+                    "expected_status": item.expected_status,
+                    "actual_status": item.actual_status,
+                    "errors": item.errors[:5],
+                }
+                for item in failures
+            ],
+        }
+    except (FileNotFoundError, KeyError, ValueError):
+        pass
     return {
         "simulation": {
             "id": simulation_id,
@@ -174,6 +203,7 @@ def _ai_simulation_context(simulation_id: str) -> dict:
         },
         "approved_operations": operations[:100],
         "scenarios": scenarios[:50],
+        "latest_validation_evidence": evidence,
         "safety": {
             "context_is_read_only": True,
             "actions_require_operator_approval": True,
@@ -594,29 +624,37 @@ def create_ai_chat_thread(request: AIChatThreadCreate, principal: ViewerPrincipa
 
 
 @router.get("/ai/settings", response_model=AISettingsView)
-def get_ai_settings(_principal: ViewerPrincipal) -> AISettingsView:
+async def get_ai_settings(_principal: ViewerPrincipal) -> AISettingsView:
+    provider = await ai_assistant.status()
     return AISettingsView(
         enabled=ai_assistant.enabled,
         model=ai_assistant.model,
         base_url=ai_assistant.base_url,
         persisted=platform_store.get_setting("ai.enabled") is not None,
+        **provider,
     )
 
 
 @router.put("/ai/settings", response_model=AISettingsView)
-def update_ai_settings(request: AISettingsUpdate, _principal: AdminPrincipal) -> AISettingsView:
+async def update_ai_settings(
+    request: AISettingsUpdate, _principal: AdminPrincipal
+) -> AISettingsView:
     platform_store.set_setting("ai.enabled", "true" if request.enabled else "false")
     ai_assistant.enabled = request.enabled
     platform_store.increment_metric("ai_settings_changes_total")
-    return get_ai_settings(_principal)
+    return await get_ai_settings(_principal)
 
 
 @router.get("/ai/chat/threads", response_model=list[AIChatThread])
-def list_ai_chat_threads(principal: ViewerPrincipal) -> list[AIChatThread]:
+def list_ai_chat_threads(
+    principal: ViewerPrincipal, include_archived: bool = Query(default=False)
+) -> list[AIChatThread]:
     return [
         AIChatThread.model_validate(item)
         for item in platform_store.list_ai_threads(
-            principal.subject, include_all=principal.role == Role.ADMIN
+            principal.subject,
+            include_all=principal.role == Role.ADMIN,
+            include_archived=include_archived,
         )
     ]
 
@@ -624,6 +662,23 @@ def list_ai_chat_threads(principal: ViewerPrincipal) -> list[AIChatThread]:
 @router.get("/ai/chat/threads/{thread_id}", response_model=AIChatThread)
 def get_ai_chat_thread(thread_id: str, principal: ViewerPrincipal) -> AIChatThread:
     return AIChatThread.model_validate(_ai_thread_for_principal(thread_id, principal))
+
+
+@router.patch("/ai/chat/threads/{thread_id}", response_model=AIChatThread)
+def update_ai_chat_thread(
+    thread_id: str, request: AIChatThreadUpdate, principal: ViewerPrincipal
+) -> AIChatThread:
+    _ai_thread_for_principal(thread_id, principal)
+    return AIChatThread.model_validate(
+        platform_store.update_ai_thread(thread_id, request.title, request.archived)
+    )
+
+
+@router.delete("/ai/chat/threads/{thread_id}", status_code=204)
+def delete_ai_chat_thread(thread_id: str, principal: ViewerPrincipal) -> Response:
+    _ai_thread_for_principal(thread_id, principal)
+    platform_store.delete_ai_thread(thread_id)
+    return Response(status_code=204)
 
 
 @router.post("/ai/chat/threads/{thread_id}/messages", response_model=AIChatMessage, status_code=201)

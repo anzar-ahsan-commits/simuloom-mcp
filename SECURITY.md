@@ -34,7 +34,7 @@ issue, pull request, simulation bundle, or reproduction case.
 
 ## Current security boundary
 
-SimuLoom v0.40 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.42 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.
@@ -51,7 +51,14 @@ Outbound delivery follows no redirects, signs the exact body with HMAC-SHA256, r
 idempotency key across retries, and opens a cooldown circuit after repeated transient failures.
 Host allowlisting is the primary SSRF boundary; do not use broad wildcard or shared proxy hosts.
 
-The optional Ollama integration is draft-only. Keep it disabled unless the selected local model and
-host are trusted. SimuLoom excludes credentials and request bodies from model context, enforces
-structured output, validates the result against the approved contract, and never persists it without
-a separate operator save action. Model output must still receive human review.
+The optional Ollama integration supports unsaved scenario drafts and simulation-grounded chat. Keep
+it disabled unless the selected local model and host are trusted. SimuLoom excludes credentials,
+secrets, environment variables, and full request bodies from model context; caps history; enforces
+structured output; and validates results outside the model. Chat may create only allowlisted inert
+proposals. An authenticated operator must approve one atomic proposal claim before execution. Model
+output and proposed arguments must still receive human review.
+
+AI conversation content is stored in the platform database. Establish retention and backup rules
+appropriate to your deployment, archive or delete obsolete threads, and do not paste production
+data or secrets into chat. Provider readiness confirms connectivity and model presence but does not
+establish model trustworthiness.

@@ -1,10 +1,18 @@
 # SimuLoom MCP
 
+[![CI](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/anzar-ahsan-commits/simuloom-mcp/actions/workflows/codeql.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 SimuLoom is an open-source control plane for contract-driven service virtualization and
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.41.0`). All example records are fictional and synthetic.
+> Status: public beta (`v0.42.0`). All example records are fictional and synthetic.
+
+Start with the [technical guide](docs/technical-guide.md), review the
+[public-launch runbook](docs/public-launch.md), or see [contribution guidance](CONTRIBUTING.md).
 
 ## What works in this milestone
 
@@ -56,6 +64,8 @@ the same deterministic application services are available through REST and MCP.
   approval, and deployment human-controlled.
 - Operate team workspaces from the console and resume queued jobs after application restarts.
 - Invoke the workflow through REST or MCP Streamable HTTP.
+- Diagnose simulations through evidence-grounded AI chat with provider/model readiness status.
+- Rename, archive, or delete persistent AI conversations.
 
 ## Architecture
 
@@ -615,6 +625,9 @@ Start SimuLoom with the Ollama settings above, open `http://localhost:8000/ui`, 
 An administrator can use **Enable AI** in the Copilot header to turn assistance on without
 restarting SimuLoom. The choice persists across application restarts. The Ollama URL and model
 remain deployment-controlled, and Ollama must already be running with the configured model.
+The header distinguishes disabled, unreachable, missing-model, and ready states. Chat context may
+include a bounded summary of the latest validation report so the Copilot can explain failed cases
+without receiving complete runtime payloads.
 
 ```text
 Explain the order lifecycle in plain language and identify any missing failure paths.
@@ -665,6 +678,14 @@ validated again at execution. Deployment proposals never request a global runtim
 - External identity-provider integration and short-lived credentials.
 - Distributed workers backed by PostgreSQL or a managed queue.
 - Additional runtime adapters and adapter conformance suites.
+
+## Community and release safety
+
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Public-launch runbook](docs/public-launch.md)
 
 ## License
 

@@ -1,0 +1,42 @@
+name: Bug report
+description: Report reproducible incorrect behavior using synthetic data only
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, customer contracts, production payloads, or personal data.
+  - type: input
+    id: version
+    attributes:
+      label: SimuLoom version
+      placeholder: 0.42.0
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options: [WireMock, Native SQLite, Native memory, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Reproduction and observed behavior
+      description: Provide minimal copy-pasteable steps and sanitized output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data safety
+      options:
+        - label: I removed credentials, production data, customer contracts, and personal data.
+          required: true

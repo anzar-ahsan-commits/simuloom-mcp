@@ -62,6 +62,32 @@ def test_ollama_schema_avoids_unsupported_large_repetition_grammar() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ai_status_distinguishes_ready_missing_and_unreachable() -> None:
+    def ready(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
+
+    assistant = ScenarioAIAssistant(
+        True, "http://ollama:11434", "qwen3:8b", httpx.MockTransport(ready)
+    )
+    status = await assistant.status()
+    assert status["status"] == "ready"
+    assert status["model_available"] is True
+
+    missing = ScenarioAIAssistant(
+        True, "http://ollama:11434", "missing", httpx.MockTransport(ready)
+    )
+    assert (await missing.status())["status"] == "model-missing"
+
+    unreachable = ScenarioAIAssistant(
+        True,
+        "http://ollama:11434",
+        "qwen3:8b",
+        httpx.MockTransport(lambda _: httpx.Response(503)),
+    )
+    assert (await unreachable.status())["status"] == "unreachable"
+
+
+@pytest.mark.asyncio
 async def test_local_ai_chat_is_grounded_and_returns_only_proposals() -> None:
     captured: dict = {}
 

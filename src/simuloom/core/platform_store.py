@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-PLATFORM_SCHEMA_VERSION = 4
+PLATFORM_SCHEMA_VERSION = 5
 
 
 class PlatformStore:
@@ -126,6 +126,14 @@ class PlatformStore:
                         name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
                     );
                     INSERT INTO schema_migrations (version) VALUES (4);
+                    """
+                )
+            if current < 5:
+                self._connection.executescript(
+                    """
+                    ALTER TABLE platform_ai_threads
+                        ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+                    INSERT INTO schema_migrations (version) VALUES (5);
                     """
                 )
 
@@ -519,29 +527,68 @@ class PlatformStore:
     def get_ai_thread(self, thread_id: str) -> dict[str, Any]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT id, simulation_id, title, owner, created_at, updated_at "
+                "SELECT id, simulation_id, title, owner, archived, created_at, updated_at "
                 "FROM platform_ai_threads WHERE id = ?",
                 (thread_id,),
             ).fetchone()
         if row is None:
             raise KeyError(f"AI conversation not found: {thread_id}")
         item = dict(row)
+        item["archived"] = bool(item["archived"])
         item["messages"] = self.list_ai_messages(thread_id)
         return item
 
-    def list_ai_threads(self, owner: str, include_all: bool = False) -> list[dict[str, Any]]:
+    def list_ai_threads(
+        self, owner: str, include_all: bool = False, include_archived: bool = False
+    ) -> list[dict[str, Any]]:
         with self._lock:
+            archived_filter = "" if include_archived else " WHERE archived = 0"
             if include_all:
                 rows = self._connection.execute(
-                    "SELECT id FROM platform_ai_threads ORDER BY updated_at DESC LIMIT 100"
+                    "SELECT id FROM platform_ai_threads"
+                    + archived_filter
+                    + " ORDER BY updated_at DESC LIMIT 100"
                 ).fetchall()
             else:
+                archived_clause = "" if include_archived else " AND archived = 0"
                 rows = self._connection.execute(
                     "SELECT id FROM platform_ai_threads WHERE owner = ? "
-                    "ORDER BY updated_at DESC LIMIT 100",
+                    + archived_clause
+                    + " ORDER BY updated_at DESC LIMIT 100",
                     (owner,),
                 ).fetchall()
         return [self.get_ai_thread(str(row[0])) for row in rows]
+
+    def update_ai_thread(
+        self, thread_id: str, title: str | None = None, archived: bool | None = None
+    ) -> dict[str, Any]:
+        self.get_ai_thread(thread_id)
+        updates: list[str] = []
+        values: list[Any] = []
+        if title is not None:
+            updates.append("title = ?")
+            values.append(title)
+        if archived is not None:
+            updates.append("archived = ?")
+            values.append(int(archived))
+        if not updates:
+            return self.get_ai_thread(thread_id)
+        updates.append("updated_at = ?")
+        values.append(datetime.now(UTC).isoformat())
+        values.append(thread_id)
+        with self._lock, self._connection:
+            self._connection.execute(
+                f"UPDATE platform_ai_threads SET {', '.join(updates)} WHERE id = ?", values
+            )
+        return self.get_ai_thread(thread_id)
+
+    def delete_ai_thread(self, thread_id: str) -> None:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "DELETE FROM platform_ai_threads WHERE id = ?", (thread_id,)
+            )
+        if cursor.rowcount != 1:
+            raise KeyError(f"AI conversation not found: {thread_id}")
 
     def add_ai_message(
         self,

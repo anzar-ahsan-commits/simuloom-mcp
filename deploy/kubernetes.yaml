@@ -30,13 +30,15 @@ spec:
     metadata:
       labels: {app: simuloom}
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: simuloom
-          image: ghcr.io/replace-me/simuloom-mcp:0.41.0
+          image: ghcr.io/anzar-ahsan-commits/simuloom-mcp:0.42.0
           ports:
             - {name: http, containerPort: 8000}
           envFrom:
@@ -84,6 +86,10 @@ spec:
     metadata:
       labels: {app: wiremock}
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: wiremock
           image: wiremock/wiremock:3.13.2
@@ -93,6 +99,9 @@ spec:
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
 ---
 apiVersion: v1
 kind: Service
@@ -102,3 +111,18 @@ spec:
   selector: {app: wiremock}
   ports:
     - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wiremock-private
+spec:
+  podSelector:
+    matchLabels: {app: wiremock}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: simuloom}
+      ports:
+        - {protocol: TCP, port: 8080}
