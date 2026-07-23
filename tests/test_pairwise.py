@@ -136,7 +136,7 @@ def test_mcp_validation_tools_expose_pairwise_options() -> None:
 class PairwiseWireMock:
     base_url = "http://wiremock.test"
 
-    async def reset_runtime_state(self) -> None:
+    async def reset_runtime_state(self, simulation_id: str | None = None) -> None:
         return None
 
     async def execute(
@@ -145,11 +145,12 @@ class PairwiseWireMock:
         path: str,
         json_body: Any = None,
         headers: dict[str, str] | None = None,
+        simulation_id: str | None = None,
     ) -> RuntimeResponse:
         del method, path, json_body, headers
         return RuntimeResponse(201, {"id": "SYN-PRODUCT-001", "synthetic": True}, {}, 1.0)
 
-    async def serve_events(self) -> list[dict[str, Any]]:
+    async def serve_events(self, simulation_id: str | None = None) -> list[dict[str, Any]]:
         return []
 
 

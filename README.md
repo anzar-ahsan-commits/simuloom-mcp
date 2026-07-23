@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.11.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.12.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -12,7 +12,7 @@ the same deterministic application services are available through REST and MCP.
 - Create a versioned local simulation workspace.
 - Generate reproducible synthetic requests from arbitrary OpenAPI JSON schemas.
 - Populate path, query, header, cookie, and JSON request-body inputs.
-- Compile successful OpenAPI responses into WireMock mappings.
+- Compile successful OpenAPI responses into portable runtime mappings.
 - Preview validation cases before deployment and cover every contract operation.
 - Inspect generated datasets through REST or MCP resources.
 - Turn synthetic member records into exact, correlated request/response mappings.
@@ -34,7 +34,8 @@ the same deterministic application services are available through REST and MCP.
 - Safely import portable bundles and regenerate mappings from approved source artifacts.
 - Authenticate REST and MCP clients with role-scoped API keys.
 - Record request outcomes in a tamper-evident JSONL audit chain.
-- Deploy mappings through the WireMock Admin API.
+- Deploy mappings to the default WireMock adapter or the in-process native runtime.
+- Discover the selected runtime and its capabilities through REST and MCP.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -45,8 +46,11 @@ flowchart TD
     B[MCP clients] --> C
     C --> D[Contract compiler]
     C --> E[Synthetic data engine]
-    C --> F[WireMock adapter]
-    F --> G[WireMock runtime]
+    C --> F[Vendor-neutral runtime mappings]
+    F --> G[WireMock adapter]
+    F --> H[Native adapter]
+    G --> I[WireMock runtime]
+    H --> J[In-process HTTP façade]
 ```
 
 ## Run with Docker
@@ -59,6 +63,17 @@ docker compose up --build
 - MCP Streamable HTTP: `http://localhost:8000/mcp`
 - WireMock runtime: `http://localhost:8080`
 
+WireMock remains the default. To use the native runtime instead:
+
+```bash
+SIMULOOM_RUNTIME=native docker compose up --build
+curl http://localhost:8000/api/v1/runtime
+```
+
+Deployed virtual services are then available under
+`http://localhost:8000/runtime/{simulation_id}/{service_path}`. Each simulation has isolated
+mappings, scenario state, and journal entries within the process.
+
 ## Run locally
 
 ```bash
@@ -66,7 +81,9 @@ uv sync --extra dev
 uv run uvicorn simuloom.main:app --reload
 ```
 
-Run WireMock separately or override `WIREMOCK_URL` to point to an existing instance.
+Run WireMock separately or override `WIREMOCK_URL` to point to an existing instance. For a
+dependency-free local runtime, set `SIMULOOM_RUNTIME=native`; optionally set
+`SIMULOOM_NATIVE_RUNTIME_URL` to the externally reachable façade URL.
 
 ## Authentication and roles
 
@@ -131,6 +148,7 @@ GET  /api/v1/simulations/{id}/export/bundle
 POST /api/v1/simulations/import
 GET  /api/v1/audit/events
 GET  /api/v1/audit/verify
+GET  /api/v1/runtime
 ```
 
 The simulation creation request shape is:
@@ -393,15 +411,18 @@ The current synthetic dataset is available as
 
 The latest evidence is available as `evidence://{simulation_id}/latest`.
 
-
 Scenario definitions are available as
 `scenario://{simulation_id}/{scenario_id}/definition`.
 
 Live runtime state is available as
 `scenario://{simulation_id}/{scenario_id}/state`.
 
+Selected-runtime capabilities are available as `runtime://current/capabilities`.
+
 Deployment preserves existing WireMock mappings by default. Set `reset_existing` explicitly
 only when SimuLoom owns the entire target WireMock instance. This reset requires `admin`.
+For the native adapter, mappings and state are process-local and are lost on restart; deploy
+again from the persisted simulation workspace after restarting SimuLoom.
 
 ## Audit evidence
 
@@ -426,8 +447,8 @@ append to a corrupted log.
 
 ## Next milestones
 
-1. Higher-strength and constrained combinatorial testing.
-2. Pluggable data generators and runtime adapters beyond WireMock.
+1. Persistent or distributed native runtime state.
+2. Additional external runtime adapters and adapter conformance suites.
 3. External identity-provider integration and short-lived credentials.
 
 ## License

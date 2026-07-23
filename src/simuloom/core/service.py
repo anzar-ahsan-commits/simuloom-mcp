@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from simuloom.adapters.wiremock import WireMockClient
 from simuloom.core.behavior import SUPPORTED_PROFILES, apply_behavior_profile
 from simuloom.core.cases import compile_contract_case_mappings, generate_contract_cases
 from simuloom.core.compiler import (
@@ -57,12 +56,15 @@ from simuloom.models import (
     ValidationPlan,
     ValidationPlanCase,
 )
+from simuloom.runtime.base import RuntimeAdapter
+from simuloom.runtime.translation import from_wiremock_mappings
 
 
 class SimulationService:
-    def __init__(self, repository: WorkspaceRepository, wiremock: WireMockClient):
+    def __init__(self, repository: WorkspaceRepository, runtime: RuntimeAdapter):
         self.repository = repository
-        self.wiremock = wiremock
+        self.runtime = runtime
+        self.wiremock = runtime  # Backward-compatible internal alias for integrations.
 
     def analyze(self, contract: dict[str, Any]) -> ContractSummary:
         return analyze_contract(contract)
@@ -126,7 +128,7 @@ class SimulationService:
     async def scenario_state(self, simulation_id: str, scenario_id: str) -> ScenarioRuntimeState:
         view = self.get_scenario(simulation_id, scenario_id)
         name = wiremock_scenario_name(simulation_id, scenario_id)
-        current = await self.wiremock.scenario_state(name)
+        current = await self.runtime.scenario_state(name)
         return ScenarioRuntimeState(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
@@ -143,8 +145,11 @@ class SimulationService:
         mappings = self.repository.read_json(
             simulation_id, f"mappings/scenarios/{scenario_id}.json"
         )
-        deployed = await self.wiremock.deploy_scenario(
-            mappings, compiled.wiremock_scenario_name, view.definition.initial_state
+        deployed = await self.runtime.deploy_scenario(
+            from_wiremock_mappings(mappings),
+            compiled.wiremock_scenario_name,
+            view.definition.initial_state,
+            simulation_id,
         )
         return ScenarioDeployResult(
             simulation_id=simulation_id,
@@ -158,9 +163,9 @@ class SimulationService:
     async def reset_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioResetResult:
         view = self.get_scenario(simulation_id, scenario_id)
         name = wiremock_scenario_name(simulation_id, scenario_id)
-        if await self.wiremock.scenario_state(name) is None:
+        if await self.runtime.scenario_state(name) is None:
             raise RuntimeError("Deploy this scenario before resetting it")
-        await self.wiremock.set_scenario_state(name, view.definition.reset_state)
+        await self.runtime.set_scenario_state(name, view.definition.reset_state)
         return ScenarioResetResult(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
@@ -170,14 +175,14 @@ class SimulationService:
         )
 
     async def reset_all_scenarios(self) -> ScenarioResetAllResult:
-        await self.wiremock.reset_all_scenarios()
+        await self.runtime.reset_all_scenarios()
         reset_count = 0
         for simulation_id in self.repository.simulation_ids():
             for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
                 definition = ScenarioDefinition.model_validate(payload)
                 name = wiremock_scenario_name(simulation_id, scenario_id)
-                if await self.wiremock.scenario_state(name) is not None:
-                    await self.wiremock.set_scenario_state(name, definition.reset_state)
+                if await self.runtime.scenario_state(name) is not None:
+                    await self.runtime.set_scenario_state(name, definition.reset_state)
                     reset_count += 1
         return ScenarioResetAllResult(reset_scenarios=reset_count, status="reset")
 
@@ -300,6 +305,8 @@ class SimulationService:
             fixed_delay_ms=profile["fixedDelayMs"],
             failure_status=profile["failureStatus"],
         )
+        for mapping in mappings:
+            mapping.setdefault("metadata", {})["simuloomSimulationId"] = simulation_id
         self.repository.write_json(simulation_id, "mappings/mappings.json", mappings)
         self.repository.write_json(
             simulation_id,
@@ -370,17 +377,19 @@ class SimulationService:
         except FileNotFoundError:
             self.compile(simulation_id)
             mappings = self.repository.read_json(simulation_id, "mappings/mappings.json")
-        deployed = await self.wiremock.deploy(mappings, reset_existing)
+        deployed = await self.runtime.deploy(
+            from_wiremock_mappings(mappings), reset_existing, simulation_id
+        )
         for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
             definition = ScenarioDefinition.model_validate(payload)
-            await self.wiremock.set_scenario_state(
+            await self.runtime.set_scenario_state(
                 wiremock_scenario_name(simulation_id, scenario_id),
                 definition.initial_state,
             )
         self.repository.update_status(simulation_id, "deployed")
         return DeployResult(
             simulation_id=simulation_id,
-            wiremock_url=self.wiremock.base_url,
+            wiremock_url=self.runtime.base_url,
             deployed_mappings=deployed,
             status="deployed",
         )
@@ -404,7 +413,7 @@ class SimulationService:
         metadata = self.repository.read_json(simulation_id, "simulation.json")
         if metadata.get("status") not in {"deployed", "validated"}:
             raise RuntimeError("Deploy this simulation before running live validation")
-        engine = EvidenceEngine(self.repository, self.wiremock)
+        engine = EvidenceEngine(self.repository, self.runtime)
         report = await engine.run(
             simulation_id,
             max_dataset_cases,

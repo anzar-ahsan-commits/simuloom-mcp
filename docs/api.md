@@ -1,8 +1,8 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.11.0 adds opt-in pairwise request generation alongside v0.10 constraint edge
-cases and v0.9 scenario evidence. Existing contract, dataset, profile, validation,
-authentication, and scenario operations remain available without breaking request changes.
+SimuLoom v0.12.0 adds a vendor-neutral runtime boundary and an in-process native runtime.
+WireMock remains the default, and existing contract, dataset, profile, validation,
+authentication, scenario, response, and artifact shapes remain compatible.
 
 ## REST endpoints
 
@@ -15,6 +15,12 @@ authentication, and scenario operations remain available without breaking reques
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/deploy` | operator | Compile, deploy, and initialize |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/reset` | operator | Reset one managed scenario |
 | POST | `/api/v1/scenarios/reset` | admin | Reset every scenario in the shared WireMock runtime |
+| GET | `/api/v1/runtime` | viewer | Discover the selected adapter and its capabilities |
+
+When `SIMULOOM_RUNTIME=native`, deployed virtual endpoints are served at
+`/runtime/{simulation_id}/{service_path}` with the methods declared by their mappings. This
+service-traffic façade is intentionally outside control-plane API-key middleware; protect or
+restrict it separately at the ingress.
 
 The OpenAPI UI at `/docs` contains complete generated request and response schemas.
 
@@ -39,7 +45,7 @@ response framing headers are rejected.
 - `404`: simulation or scenario does not exist.
 - `409`: a runtime operation requires a scenario to be deployed first.
 - `422`: invalid ID, graph, contract operation, status, or response schema.
-- `502`: WireMock inspection, deployment, or reset failed.
+- `502`: runtime inspection, deployment, or reset failed.
 
 ## Scenario validation
 
@@ -117,5 +123,22 @@ Resources:
 
 - `scenario://{simulation_id}/{scenario_id}/definition`
 - `scenario://{simulation_id}/{scenario_id}/state`
+- `runtime://current/capabilities`
 
 The same viewer/operator/admin permissions apply to REST and MCP.
+
+## Runtime selection
+
+Set `SIMULOOM_RUNTIME` to `wiremock` (default) or `native`. `WIREMOCK_URL` selects the
+WireMock Admin/service URL. `SIMULOOM_NATIVE_RUNTIME_URL` is the externally advertised native
+façade base URL and defaults to `http://localhost:8000/runtime`.
+
+The canonical runtime model covers exact or regex paths, exact/absent query and header
+values, exact JSON bodies, deterministic JSON responses, delays, priorities, scenarios, and
+request-journal evidence. WireMock artifacts stored by older versions are translated at the
+adapter boundary. The native adapter isolates mappings, state, and journal events by
+simulation ID.
+
+Native runtime state is in memory and single-process. It is not shared between workers and is
+lost when SimuLoom restarts. Raw non-JSON response bodies and advanced WireMock extensions are
+not yet portable through the canonical model.

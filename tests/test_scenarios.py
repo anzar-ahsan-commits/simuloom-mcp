@@ -130,7 +130,13 @@ class ScenarioWireMock:
     async def scenario_state(self, name: str) -> str | None:
         return self.states.get(name)
 
-    async def deploy_scenario(self, mappings: list[dict], name: str, initial: str) -> int:
+    async def deploy_scenario(
+        self,
+        mappings: list[dict],
+        name: str,
+        initial: str,
+        simulation_id: str | None = None,
+    ) -> int:
         self.deployed = mappings
         self.states[name] = initial
         return len(mappings)

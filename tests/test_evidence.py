@@ -17,7 +17,7 @@ class FakeWireMockClient:
         self.journey_state = "SUBMITTED"
         self.reset_called = False
 
-    async def reset_runtime_state(self) -> None:
+    async def reset_runtime_state(self, simulation_id: str | None = None) -> None:
         self.reset_called = True
         self.journey_state = "SUBMITTED"
 
@@ -27,6 +27,7 @@ class FakeWireMockClient:
         path: str,
         json_body: Any = None,
         headers: dict[str, str] | None = None,
+        simulation_id: str | None = None,
     ) -> RuntimeResponse:
         if method == "POST" and path == "/eligibility/requests":
             self.journey_state = "PROCESSING"
@@ -54,7 +55,7 @@ class FakeWireMockClient:
             body.pop("synthetic")
         return self._response(200, body)
 
-    async def serve_events(self) -> list[dict[str, Any]]:
+    async def serve_events(self, simulation_id: str | None = None) -> list[dict[str, Any]]:
         return []
 
     @staticmethod

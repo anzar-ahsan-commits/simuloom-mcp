@@ -32,6 +32,7 @@ from simuloom.models import (
     ValidationPlanRequest,
     ValidationRequest,
 )
+from simuloom.runtime.models import RuntimeCapabilities
 from simuloom.security import Principal, Role, require_role, role_allows
 
 router = APIRouter(prefix="/api/v1")
@@ -43,10 +44,21 @@ AdminPrincipal = Annotated[Principal, Depends(require_role(Role.ADMIN))]
 @router.get("/health")
 async def health() -> dict[str, str | bool]:
     try:
-        wiremock_ready = await service.wiremock.health()
+        runtime_ready = await service.runtime.health()
     except Exception:
-        wiremock_ready = False
-    return {"status": "ok", "wiremockReady": wiremock_ready}
+        runtime_ready = False
+    runtime_name = service.runtime.capabilities().runtime
+    return {
+        "status": "ok",
+        "runtime": runtime_name,
+        "runtimeReady": runtime_ready,
+        "wiremockReady": runtime_ready if runtime_name == "wiremock" else False,
+    }
+
+
+@router.get("/runtime", response_model=RuntimeCapabilities)
+def runtime_capabilities(_principal: ViewerPrincipal) -> RuntimeCapabilities:
+    return service.runtime.capabilities()
 
 
 @router.post("/contracts/analyze", response_model=ContractSummary)
@@ -132,7 +144,7 @@ async def deploy_simulation(
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"WireMock deployment failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Runtime deployment failed: {exc}") from exc
 
 
 @router.post("/simulations/{simulation_id}/validate", response_model=EvidenceReport)

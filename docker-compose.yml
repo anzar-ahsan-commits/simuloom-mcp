@@ -5,7 +5,9 @@ services:
       - "8000:8000"
     environment:
       SIMULOOM_WORKSPACE: /app/workspace
+      SIMULOOM_RUNTIME: ${SIMULOOM_RUNTIME:-wiremock}
       WIREMOCK_URL: http://wiremock:8080
+      SIMULOOM_NATIVE_RUNTIME_URL: ${SIMULOOM_NATIVE_RUNTIME_URL:-http://localhost:8000/runtime}
       SIMULOOM_AUTH_ENABLED: ${SIMULOOM_AUTH_ENABLED:-false}
       SIMULOOM_API_KEYS: '${SIMULOOM_API_KEYS:-{}}'
       SIMULOOM_AUDIT_SIGNING_KEY: ${SIMULOOM_AUDIT_SIGNING_KEY:-}

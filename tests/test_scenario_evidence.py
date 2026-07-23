@@ -114,7 +114,7 @@ class ScenarioEvidenceWireMock:
         self.state: str | None = None
         self.transition_succeeds = transition_succeeds
 
-    async def reset_runtime_state(self) -> None:
+    async def reset_runtime_state(self, simulation_id: str | None = None) -> None:
         self.state = None
 
     async def set_scenario_state(self, _name: str, state: str) -> None:
@@ -129,6 +129,7 @@ class ScenarioEvidenceWireMock:
         path: str,
         json_body: Any = None,
         headers: dict[str, str] | None = None,
+        simulation_id: str | None = None,
     ) -> RuntimeResponse:
         del json_body, headers
         status = 201 if method == "POST" else 200
@@ -136,7 +137,7 @@ class ScenarioEvidenceWireMock:
             self.state = "PENDING"
         return RuntimeResponse(status, {}, {}, 1.0)
 
-    async def serve_events(self) -> list[dict[str, Any]]:
+    async def serve_events(self, simulation_id: str | None = None) -> list[dict[str, Any]]:
         return []
 
 

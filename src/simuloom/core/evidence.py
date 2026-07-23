@@ -11,7 +11,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from jsonschema import ValidationError, validate
 
-from simuloom.adapters.wiremock import WireMockClient
 from simuloom.core.cases import baseline_contract_cases
 from simuloom.core.compiler import resolve_ref
 from simuloom.core.contracts import (
@@ -32,6 +31,7 @@ from simuloom.models import (
     ValidationCaseResult,
     ValidationSummary,
 )
+from simuloom.runtime.base import RuntimeAdapter
 
 
 @dataclass(slots=True)
@@ -485,9 +485,9 @@ Profile: <strong>{html.escape(report.active_profile)}</strong></p>
 
 
 class EvidenceEngine:
-    def __init__(self, repository: WorkspaceRepository, wiremock: WireMockClient):
+    def __init__(self, repository: WorkspaceRepository, runtime: RuntimeAdapter):
         self.repository = repository
-        self.wiremock = wiremock
+        self.runtime = runtime
 
     async def run(
         self,
@@ -521,7 +521,7 @@ class EvidenceEngine:
         }
 
         if reset_runtime_state:
-            await self.wiremock.reset_runtime_state()
+            await self.runtime.reset_runtime_state(simulation_id)
         cases = build_validation_cases(
             contract, members, profile, max_dataset_cases, contract_cases
         )
@@ -553,17 +553,21 @@ class EvidenceEngine:
                     definition = scenario_definitions[case.scenario_id]
                     scenario_name = wiremock_scenario_name(simulation_id, case.scenario_id)
                     if case.reset_before:
-                        await self.wiremock.set_scenario_state(
+                        await self.runtime.set_scenario_state(
                             scenario_name, definition.initial_state
                         )
-                    actual_state_before = await self.wiremock.scenario_state(scenario_name)
+                    actual_state_before = await self.runtime.scenario_state(scenario_name)
                     if actual_state_before != case.required_state:
                         errors.append(
                             f"Expected scenario state {case.required_state}, "
                             f"observed {actual_state_before}"
                         )
-                observation = await self.wiremock.execute(
-                    case.method, case.path, case.body, case.headers
+                observation = await self.runtime.execute(
+                    case.method,
+                    case.path,
+                    case.body,
+                    case.headers,
+                    simulation_id,
                 )
                 actual_status = observation.status_code
                 elapsed_ms = observation.elapsed_ms
@@ -577,7 +581,7 @@ class EvidenceEngine:
                         schema_valid = False
                         errors.append(f"Schema validation failed: {exc.message}")
                 if case.scenario_id is not None:
-                    actual_state_after = await self.wiremock.scenario_state(scenario_name)
+                    actual_state_after = await self.runtime.scenario_state(scenario_name)
                     expected_after = case.new_state or case.required_state
                     if actual_state_after != expected_after:
                         errors.append(
@@ -615,7 +619,7 @@ class EvidenceEngine:
                 )
             )
 
-        events = await self.wiremock.serve_events()
+        events = await self.runtime.serve_events(simulation_id)
         unmatched = sum(1 for event in events if event.get("wasMatched") is False)
         passed = sum(1 for result in results if result.passed)
         operations = analyze_contract(contract).operations
