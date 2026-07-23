@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.28.0 - Consolidation and Hardening
+
+- Made workspace artifact writes atomic and durable, with process-coordinated transactions that
+  prevent lost scenario updates across local workers.
+- Introduced explicit workspace format metadata and schema compatibility checks while adopting
+  existing workspaces automatically.
+- Added authenticated runtime and workspace readiness diagnostics.
+- Coordinated audit-chain appends across processes and synchronized them to durable storage.
+- Hardened workspace backup/restore by excluding control files and rejecting duplicate targets
+  before any content is written.
+- Constrained caller-provided request IDs and added failure, concurrency, traversal, schema, and
+  multi-writer regression tests.
+
+## 0.27.0 - Workspace Backup and Restore
+
+- Added bounded deterministic control-plane backups and merge-safe restore.
+- Rejects traversal, symlinks, oversized archives, and every overwrite before writing.
+
+## 0.26.0 - Orchestration Observability
+
+- Added bounded low-cardinality counters through JSON, Prometheus text, and MCP.
+
+## 0.25.0 - Event and Webhook Orchestration
+
+- Added safe inbound topic transitions, payload journals, REST webhook ingestion, and MCP publishing.
+
+## 0.24.0 - Virtual Scenario Clocks
+
+- Added deterministic timeout transitions driven by explicit virtual-time advancement.
+
+## 0.23.0 - Scenario Fault Injection
+
+- Added deterministic delays and empty-response, connection-reset, and malformed-response faults.
+
+## 0.22.0 - Parameterized Scenario Instances
+
+- Added declared template placeholders with strict missing/extra parameter validation.
+
+## 0.21.0 - Reusable Scenario Templates
+
+- Added workspace-level templates extracted from immutable revisions and contract-safe instantiation.
+
+## 0.20.0 - Environment Promotion
+
+- Added exact-revision promotion between simulations with target contract and ETag validation.
+
+## 0.19.0 - Policy Audit Evidence
+
+- Added a separate tamper-evident domain-event hash chain for policy and orchestration actions.
+
+## 0.18.0 - Release Approval Gates
+
+- Added opt-in approvals, immutable review decisions, breaking-change policy, and guarded deployment.
+
 ## 0.17.0 - Scenario Release Management
 
 - Added semantic revision comparison with explicit breaking-change indicators.

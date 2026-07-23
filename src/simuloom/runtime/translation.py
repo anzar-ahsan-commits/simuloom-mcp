@@ -36,6 +36,7 @@ def from_wiremock_mapping(mapping: dict[str, Any]) -> RuntimeMapping:
             },
             json_body=_json_value(response.get("body")),
             delay_ms=int(response.get("fixedDelayMilliseconds", 0)),
+            fault=response.get("fault"),
         ),
         metadata=mapping.get("metadata") or {},
         scenario_name=mapping.get("scenarioName"),
@@ -63,6 +64,9 @@ def to_wiremock_mapping(mapping: RuntimeMapping) -> dict[str, Any]:
     }
     if mapping.response.delay_ms:
         response["fixedDelayMilliseconds"] = mapping.response.delay_ms
+    if mapping.response.fault:
+        response.pop("body", None)
+        response["fault"] = mapping.response.fault
     payload: dict[str, Any] = {
         "name": mapping.name,
         "priority": mapping.priority,

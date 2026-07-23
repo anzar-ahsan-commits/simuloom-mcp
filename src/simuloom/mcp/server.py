@@ -186,6 +186,73 @@ def compare_scenario_revisions(
 
 
 @mcp.tool()
+def get_release_policy(simulation_id: str) -> dict:
+    """Read the simulation's opt-in scenario release approval policy."""
+    require_current_role(Role.VIEWER)
+    return service.scenario_release_policy(simulation_id).model_dump(mode="json")
+
+
+@mcp.tool()
+def update_release_policy(
+    simulation_id: str,
+    require_approval: bool = False,
+    block_breaking_changes: bool = False,
+) -> dict:
+    """Configure release gates for a simulation; requires admin."""
+    principal = require_current_role(Role.ADMIN)
+    return service.update_scenario_release_policy(
+        simulation_id,
+        require_approval,
+        block_breaking_changes,
+        principal.subject,
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def request_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    note: str = "",
+) -> dict:
+    """Request an approval decision for an immutable scenario revision."""
+    principal = require_current_role(Role.OPERATOR)
+    return service.request_scenario_review(
+        simulation_id, scenario_id, revision, principal.subject, note
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def scenario_reviews(simulation_id: str, scenario_id: str) -> list[dict]:
+    """List scenario review requests and immutable decisions, newest first."""
+    require_current_role(Role.VIEWER)
+    return [
+        item.model_dump(mode="json")
+        for item in service.scenario_reviews(simulation_id, scenario_id)
+    ]
+
+
+@mcp.tool()
+def decide_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    review_number: int,
+    approved: bool,
+    note: str = "",
+) -> dict:
+    """Approve or reject a pending scenario review; requires admin."""
+    principal = require_current_role(Role.ADMIN)
+    return service.decide_scenario_review(
+        simulation_id,
+        scenario_id,
+        review_number,
+        approved,
+        principal.subject,
+        note,
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
 def restore_scenario_revision(
     simulation_id: str,
     scenario_id: str,
@@ -201,6 +268,86 @@ def restore_scenario_revision(
         actor=principal.subject,
         expected_etag=expected_etag,
     ).model_dump(mode="json")
+
+
+@mcp.tool()
+def promote_scenario_revision(
+    source_simulation_id: str,
+    source_scenario_id: str,
+    source_revision: int,
+    target_simulation_id: str,
+    target_scenario_id: str | None = None,
+    expected_target_etag: str | None = None,
+) -> dict:
+    """Promote an immutable revision into another compatible simulation."""
+    principal = require_current_role(Role.OPERATOR)
+    return service.promote_scenario_revision(
+        source_simulation_id,
+        source_scenario_id,
+        source_revision,
+        target_simulation_id,
+        target_scenario_id,
+        principal.subject,
+        expected_target_etag,
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def create_scenario_template(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    template_id: str,
+    name: str,
+    description: str = "",
+    parameterize: dict[str, str] | None = None,
+) -> dict:
+    """Save an immutable scenario revision as a reusable workspace template."""
+    principal = require_current_role(Role.OPERATOR)
+    return service.create_scenario_template(
+        simulation_id,
+        scenario_id,
+        revision,
+        template_id,
+        name,
+        description,
+        principal.subject,
+        parameterize,
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def list_scenario_templates() -> list[dict]:
+    """List reusable scenario templates."""
+    require_current_role(Role.VIEWER)
+    return [item.model_dump(mode="json") for item in service.scenario_templates()]
+
+
+@mcp.tool()
+def instantiate_scenario_template(
+    template_id: str,
+    simulation_id: str,
+    scenario_id: str,
+    expected_etag: str | None = None,
+    parameters: dict[str, str] | None = None,
+) -> dict:
+    """Instantiate a template into a compatible simulation."""
+    principal = require_current_role(Role.OPERATOR)
+    return service.instantiate_scenario_template(
+        template_id,
+        simulation_id,
+        scenario_id,
+        principal.subject,
+        expected_etag,
+        parameters,
+    ).model_dump(mode="json")
+
+
+@mcp.resource("template://{template_id}/definition", mime_type="application/json")
+def scenario_template_definition(template_id: str) -> str:
+    """Return one reusable scenario template."""
+    require_current_role(Role.VIEWER)
+    return service.get_scenario_template(template_id).model_dump_json(indent=2)
 
 
 @mcp.tool()
@@ -266,6 +413,47 @@ async def reset_scenario(simulation_id: str, scenario_id: str) -> dict:
 
 
 @mcp.tool()
+async def advance_scenario_clock(simulation_id: str, scenario_id: str, milliseconds: int) -> dict:
+    """Advance deterministic virtual time and apply configured timeout transitions."""
+    principal = require_current_role(Role.OPERATOR)
+    return (
+        await service.advance_scenario_clock(
+            simulation_id, scenario_id, milliseconds, principal.subject
+        )
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+async def publish_scenario_event(
+    simulation_id: str, topic: str, payload: object | None = None
+) -> dict:
+    """Publish a bounded inbound event and apply matching scenario transitions."""
+    principal = require_current_role(Role.OPERATOR)
+    return (
+        await service.publish_scenario_event(simulation_id, topic, payload, principal.subject)
+    ).model_dump(mode="json")
+
+
+@mcp.tool()
+def export_workspace_backup() -> dict:
+    """Export a bounded workspace backup as base64; requires admin."""
+    require_current_role(Role.ADMIN)
+    data = service.workspace_backup()
+    return {"bundle_base64": base64.b64encode(data).decode(), "size": len(data)}
+
+
+@mcp.tool()
+def restore_workspace_backup(bundle_base64: str) -> dict:
+    """Merge a workspace backup without overwriting existing files; requires admin."""
+    principal = require_current_role(Role.ADMIN)
+    try:
+        data = base64.b64decode(bundle_base64, validate=True)
+    except binascii.Error as exc:
+        raise ValueError("bundle_base64 is not valid base64") from exc
+    return service.restore_workspace(data, principal.subject).model_dump(mode="json")
+
+
+@mcp.tool()
 async def reset_all_scenarios() -> dict:
     """Reset all WireMock scenarios; this global operation requires admin."""
     require_current_role(Role.ADMIN)
@@ -291,6 +479,27 @@ def runtime_capabilities() -> str:
     """Return the selected runtime adapter and its supported capabilities."""
     require_current_role(Role.VIEWER)
     return service.runtime.capabilities().model_dump_json(indent=2)
+
+
+@mcp.resource("metrics://current/counters", mime_type="application/json")
+def current_metrics() -> str:
+    """Return bounded low-cardinality SimuLoom operation counters."""
+    require_current_role(Role.VIEWER)
+    return json.dumps(service.metrics_snapshot(), indent=2)
+
+
+@mcp.resource("audit://domain/events", mime_type="application/json")
+def domain_audit_events() -> str:
+    """Return recent tamper-evident policy and lifecycle domain events."""
+    require_current_role(Role.ADMIN)
+    return json.dumps(service.domain_audit_events(), indent=2)
+
+
+@mcp.resource("audit://domain/verification", mime_type="application/json")
+def domain_audit_verification() -> str:
+    """Verify the complete domain-event hash chain."""
+    require_current_role(Role.ADMIN)
+    return json.dumps(service.verify_domain_audit(), indent=2)
 
 
 @mcp.resource("simulation://{simulation_id}/portable-manifest", mime_type="application/yaml")
@@ -344,6 +553,22 @@ def scenario_release_history(simulation_id: str, scenario_id: str) -> str:
         [
             item.model_dump(mode="json")
             for item in service.scenario_releases(simulation_id, scenario_id)
+        ],
+        indent=2,
+    )
+
+
+@mcp.resource(
+    "scenario://{simulation_id}/{scenario_id}/reviews",
+    mime_type="application/json",
+)
+def scenario_review_history(simulation_id: str, scenario_id: str) -> str:
+    """Return scenario review requests and decisions as a read-only resource."""
+    require_current_role(Role.VIEWER)
+    return json.dumps(
+        [
+            item.model_dump(mode="json")
+            for item in service.scenario_reviews(simulation_id, scenario_id)
         ],
         indent=2,
     )

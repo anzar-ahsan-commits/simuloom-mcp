@@ -67,6 +67,29 @@ def test_audit_chain_detects_tampering(tmp_path: Path) -> None:
         AuditLog(path, "audit-signing-secret")
 
 
+def test_independent_audit_writers_preserve_one_chain(tmp_path: Path) -> None:
+    path = tmp_path / "audit" / "events.jsonl"
+    first = AuditLog(path, "audit-signing-secret")
+    second = AuditLog(path, "audit-signing-secret")
+
+    for index, audit in enumerate((first, second, first, second), start=1):
+        audit.append(
+            request_id=f"request-{index}",
+            subject="worker",
+            role="operator",
+            key_id="key-123",
+            method="POST",
+            path="/api/v1/simulations",
+            status_code=201,
+            duration_ms=1,
+            outcome="allowed",
+        )
+
+    events = first.read_events()
+    assert [event["sequence"] for event in events] == [1, 2, 3, 4]
+    assert first.verify()["valid"] is True
+
+
 def test_rest_roles_and_audit_events(tmp_path: Path, monkeypatch) -> None:
     contract = yaml.safe_load(Path("examples/benefits-eligibility/openapi.yaml").read_text())
     test_service = SimulationService(
@@ -138,3 +161,20 @@ def test_rest_roles_and_audit_events(tmp_path: Path, monkeypatch) -> None:
     assert "viewer-secret-123456" not in audit_text
     assert "operator-secret-123456" not in audit_text
     assert "admin-secret-123456" not in audit_text
+
+
+def test_invalid_request_id_is_replaced(tmp_path: Path) -> None:
+    controller = AccessController(False, "{}")
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    client = TestClient(create_app(controller, audit))
+    try:
+        response = client.get(
+            "/api/v1/session",
+            headers={"X-Request-ID": "invalid request id with spaces"},
+        )
+    finally:
+        client.close()
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] != "invalid request id with spaces"
+    assert len(response.headers["x-request-id"]) == 32

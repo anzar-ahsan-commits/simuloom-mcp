@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.17.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.28.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -41,6 +41,12 @@ the same deterministic application services are available through REST and MCP.
 - Build portable stateful scenarios with a visual SVG graph and contract-aware inspector.
 - Safely edit scenarios with immutable revision history, ETags, conflict detection, and restore.
 - Compare revisions and deploy or roll back exact, fingerprinted scenario releases.
+- Govern releases with approval gates and tamper-evident policy evidence.
+- Promote revisions across environments and build reusable parameterized templates.
+- Inject deterministic faults, advance virtual time, and orchestrate inbound events.
+- Observe orchestration counters and back up or merge-restore control-plane workspaces.
+- Persist workspace changes atomically with process-safe locks and explicit schema checks.
+- Inspect authenticated runtime and workspace readiness diagnostics.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -69,6 +75,15 @@ docker compose up --build
 - Operator Console: `http://localhost:8000/ui`
 - MCP Streamable HTTP: `http://localhost:8000/mcp`
 - WireMock runtime: `http://localhost:8080`
+
+Verify liveness and authenticated readiness (the API key header is optional when authentication
+is disabled):
+
+```bash
+curl --fail http://localhost:8000/api/v1/health
+curl --fail http://localhost:8000/api/v1/readiness \
+  -H "X-API-Key: ${SIMULOOM_API_KEY:-}"
+```
 
 WireMock remains the default. To use the native runtime instead:
 
@@ -172,6 +187,20 @@ POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/deploy
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/releases
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/releases/{release_number}
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/releases/{release_number}/rollback
+GET  /api/v1/simulations/{id}/release-policy
+PUT  /api/v1/simulations/{id}/release-policy
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/review
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/reviews
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/reviews/{review}/approve
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/reviews/{review}/reject
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/promote
+GET  /api/v1/scenario-templates
+POST /api/v1/scenario-templates/{template_id}/instantiate
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/clock/advance
+POST /api/v1/simulations/{id}/events
+GET  /api/v1/metrics
+GET  /api/v1/workspace/backup
+POST /api/v1/workspace/restore
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/state
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/compile
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/deploy
@@ -444,6 +473,12 @@ trusted: SimuLoom recompiles them from the validated contract, dataset, and prof
 - `restore_scenario_revision`
 - `scenario_releases`
 - `rollback_scenario_release`
+- `get_release_policy`, `update_release_policy`
+- `request_scenario_review`, `scenario_reviews`, `decide_scenario_review`
+- `promote_scenario_revision`
+- `create_scenario_template`, `list_scenario_templates`, `instantiate_scenario_template`
+- `advance_scenario_clock`, `publish_scenario_event`
+- `export_workspace_backup`, `restore_workspace_backup`
 - `inspect_scenario`
 - `compile_scenario`
 - `deploy_scenario`
@@ -470,6 +505,11 @@ Immutable revision metadata is available as
 Immutable deployment records are available as
 `scenario://{simulation_id}/{scenario_id}/releases`.
 
+Review evidence and templates are available through
+`scenario://{simulation_id}/{scenario_id}/reviews` and `template://{template_id}/definition`.
+Metrics and domain-audit verification are available through `metrics://current/counters`,
+`audit://domain/events`, and `audit://domain/verification`.
+
 Live runtime state is available as
 `scenario://{simulation_id}/{scenario_id}/state`.
 
@@ -491,6 +531,11 @@ chain uses HMAC-SHA256; otherwise it uses an unkeyed SHA-256 chain suitable for 
 Admins can retrieve recent events from `/api/v1/audit/events` and verify the complete chain at
 `/api/v1/audit/verify`. SimuLoom also verifies the existing chain during startup and refuses to
 append to a corrupted log.
+
+Policy and orchestration decisions use a separate domain-event chain at
+`/api/v1/audit/domain-events`, verified through `/api/v1/audit/domain-verify`. Control-plane
+workspace backups intentionally exclude active audit logs and runtime databases; those require
+their own operational snapshots. Restore is merge-only and never overwrites an existing file.
 
 ## Guardrails
 

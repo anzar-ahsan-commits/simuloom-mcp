@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 from simuloom.container import service
 from simuloom.core.manifest import MAX_BUNDLE_SIZE
+from simuloom.core.scenario_approvals import ScenarioApprovalError
 from simuloom.core.scenario_revisions import ScenarioConflictError
 from simuloom.models import (
     CompileResult,
@@ -35,18 +36,32 @@ from simuloom.models import (
     OperationSummary,
     ProfileConfigRequest,
     ProfileResult,
+    ScenarioClockAdvance,
+    ScenarioClockView,
     ScenarioCompileResult,
     ScenarioDefinition,
     ScenarioDeployResult,
+    ScenarioEventPublish,
+    ScenarioEventResult,
     ScenarioGraphDiagnostic,
+    ScenarioPromotionRequest,
+    ScenarioPromotionResult,
     ScenarioRelease,
+    ScenarioReleasePolicy,
+    ScenarioReleasePolicyUpdate,
     ScenarioResetAllResult,
     ScenarioResetResult,
+    ScenarioReview,
+    ScenarioReviewDecision,
+    ScenarioReviewRequest,
     ScenarioRevision,
     ScenarioRevisionComparison,
     ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
+    ScenarioTemplate,
+    ScenarioTemplateCreate,
+    ScenarioTemplateInstantiate,
     ScenarioView,
     SessionView,
     Simulation,
@@ -54,6 +69,8 @@ from simuloom.models import (
     ValidationPlan,
     ValidationPlanRequest,
     ValidationRequest,
+    WorkspaceReadiness,
+    WorkspaceRestoreResult,
 )
 from simuloom.runtime.models import RuntimeCapabilities
 from simuloom.security import Principal, Role, require_role, role_allows
@@ -97,6 +114,36 @@ async def health() -> dict[str, str | bool]:
         "runtimeReady": runtime_ready,
         "wiremockReady": runtime_ready if runtime_name == "wiremock" else False,
     }
+
+
+@router.get("/readiness", response_model=WorkspaceReadiness)
+async def readiness(_principal: ViewerPrincipal) -> WorkspaceReadiness:
+    try:
+        runtime_ready = await service.runtime.health()
+    except Exception:
+        runtime_ready = False
+    workspace = service.repository.diagnostics()
+    ready = runtime_ready and workspace["writable"]
+    return WorkspaceReadiness(
+        status="ready" if ready else "degraded",
+        runtime=service.runtime.capabilities().runtime,
+        runtime_ready=runtime_ready,
+        workspace_format=workspace["format"],
+        workspace_schema_version=workspace["schema_version"],
+        supported_workspace_schema_version=workspace["supported_schema_version"],
+        workspace_writable=workspace["writable"],
+        simulation_count=workspace["simulation_count"],
+    )
+
+
+@router.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics(_principal: ViewerPrincipal) -> str:
+    return service.prometheus_metrics()
+
+
+@router.get("/metrics/json")
+def metrics_snapshot(_principal: ViewerPrincipal) -> dict[str, int]:
+    return service.metrics_snapshot()
 
 
 @router.get("/runtime", response_model=RuntimeCapabilities)
@@ -232,6 +279,8 @@ async def deploy_simulation(
         )
     try:
         return await service.deploy(simulation_id, request.reset_existing, actor=principal.subject)
+    except ScenarioApprovalError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -462,6 +511,223 @@ def get_scenario_revision(
 
 
 @router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/promote",
+    response_model=ScenarioPromotionResult,
+)
+def promote_scenario_revision(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    request: ScenarioPromotionRequest,
+    principal: OperatorPrincipal,
+) -> ScenarioPromotionResult:
+    try:
+        return service.promote_scenario_revision(
+            simulation_id,
+            scenario_id,
+            revision,
+            request.target_simulation_id,
+            request.target_scenario_id,
+            principal.subject,
+            request.expected_target_etag,
+        )
+    except ScenarioConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/template",
+    response_model=ScenarioTemplate,
+)
+def create_scenario_template(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    request: ScenarioTemplateCreate,
+    principal: OperatorPrincipal,
+) -> ScenarioTemplate:
+    try:
+        return service.create_scenario_template(
+            simulation_id,
+            scenario_id,
+            revision,
+            request.template_id,
+            request.name,
+            request.description,
+            principal.subject,
+            request.parameterize,
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/scenario-templates", response_model=list[ScenarioTemplate])
+def list_scenario_templates(_principal: ViewerPrincipal) -> list[ScenarioTemplate]:
+    return service.scenario_templates()
+
+
+@router.get("/scenario-templates/{template_id}", response_model=ScenarioTemplate)
+def get_scenario_template(template_id: str, _principal: ViewerPrincipal) -> ScenarioTemplate:
+    try:
+        return service.get_scenario_template(template_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/scenario-templates/{template_id}/instantiate", response_model=ScenarioView)
+def instantiate_scenario_template(
+    template_id: str,
+    request: ScenarioTemplateInstantiate,
+    principal: OperatorPrincipal,
+) -> ScenarioView:
+    try:
+        return service.instantiate_scenario_template(
+            template_id,
+            request.simulation_id,
+            request.scenario_id,
+            principal.subject,
+            request.expected_etag,
+            request.parameters,
+        )
+    except ScenarioConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/release-policy",
+    response_model=ScenarioReleasePolicy,
+)
+def get_scenario_release_policy(
+    simulation_id: str, _principal: ViewerPrincipal
+) -> ScenarioReleasePolicy:
+    try:
+        return service.scenario_release_policy(simulation_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put(
+    "/simulations/{simulation_id}/release-policy",
+    response_model=ScenarioReleasePolicy,
+)
+def update_scenario_release_policy(
+    simulation_id: str,
+    update: ScenarioReleasePolicyUpdate,
+    principal: AdminPrincipal,
+) -> ScenarioReleasePolicy:
+    try:
+        return service.update_scenario_release_policy(
+            simulation_id,
+            update.require_approval,
+            update.block_breaking_changes,
+            principal.subject,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/review",
+    response_model=ScenarioReview,
+)
+def request_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    request: ScenarioReviewRequest,
+    principal: OperatorPrincipal,
+) -> ScenarioReview:
+    try:
+        return service.request_scenario_review(
+            simulation_id, scenario_id, revision, principal.subject, request.note
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/reviews",
+    response_model=list[ScenarioReview],
+)
+def scenario_reviews(
+    simulation_id: str, scenario_id: str, _principal: ViewerPrincipal
+) -> list[ScenarioReview]:
+    try:
+        return service.scenario_reviews(simulation_id, scenario_id)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _decide_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    review_number: int,
+    approved: bool,
+    decision: ScenarioReviewDecision,
+    principal: Principal,
+) -> ScenarioReview:
+    try:
+        return service.decide_scenario_review(
+            simulation_id,
+            scenario_id,
+            review_number,
+            approved,
+            principal.subject,
+            decision.note,
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/reviews/{review_number}/approve",
+    response_model=ScenarioReview,
+)
+def approve_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    review_number: int,
+    decision: ScenarioReviewDecision,
+    principal: AdminPrincipal,
+) -> ScenarioReview:
+    return _decide_scenario_review(
+        simulation_id, scenario_id, review_number, True, decision, principal
+    )
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/reviews/{review_number}/reject",
+    response_model=ScenarioReview,
+)
+def reject_scenario_review(
+    simulation_id: str,
+    scenario_id: str,
+    review_number: int,
+    decision: ScenarioReviewDecision,
+    principal: AdminPrincipal,
+) -> ScenarioReview:
+    return _decide_scenario_review(
+        simulation_id, scenario_id, review_number, False, decision, principal
+    )
+
+
+@router.post(
     "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/restore",
     response_model=ScenarioView,
 )
@@ -558,6 +824,8 @@ async def deploy_scenario(
 ) -> ScenarioDeployResult:
     try:
         return await service.deploy_scenario(simulation_id, scenario_id, actor=principal.subject)
+    except ScenarioApprovalError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -582,6 +850,8 @@ async def deploy_scenario_revision(
         return await service.deploy_scenario(
             simulation_id, scenario_id, actor=principal.subject, revision=revision
         )
+    except ScenarioApprovalError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -664,6 +934,26 @@ async def reset_scenario(
         ) from exc
 
 
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/clock/advance",
+    response_model=ScenarioClockView,
+)
+async def advance_scenario_clock(
+    simulation_id: str,
+    scenario_id: str,
+    request: ScenarioClockAdvance,
+    principal: OperatorPrincipal,
+) -> ScenarioClockView:
+    try:
+        return await service.advance_scenario_clock(
+            simulation_id, scenario_id, request.milliseconds, principal.subject
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/scenarios/reset", response_model=ScenarioResetAllResult)
 async def reset_all_scenarios(_principal: AdminPrincipal) -> ScenarioResetAllResult:
     try:
@@ -672,6 +962,25 @@ async def reset_all_scenarios(_principal: AdminPrincipal) -> ScenarioResetAllRes
         raise HTTPException(
             status_code=502, detail=f"WireMock scenario reset failed: {exc}"
         ) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/events",
+    response_model=ScenarioEventResult,
+)
+async def publish_scenario_event(
+    simulation_id: str,
+    event: ScenarioEventPublish,
+    principal: OperatorPrincipal,
+) -> ScenarioEventResult:
+    try:
+        return await service.publish_scenario_event(
+            simulation_id, event.topic, event.payload, principal.subject
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/audit/events")
@@ -686,3 +995,39 @@ def audit_events(
 @router.get("/audit/verify")
 def verify_audit_log(request: Request, _principal: AdminPrincipal) -> dict:
     return request.app.state.audit_log.verify()
+
+
+@router.get("/audit/domain-events")
+def domain_audit_events(
+    _principal: AdminPrincipal,
+    limit: int = Query(default=100, ge=1, le=1_000),
+) -> dict:
+    return {"events": service.domain_audit_events(limit)}
+
+
+@router.get("/audit/domain-verify")
+def verify_domain_audit(_principal: AdminPrincipal) -> dict:
+    return service.verify_domain_audit()
+
+
+@router.get("/workspace/backup")
+def workspace_backup(_principal: AdminPrincipal) -> Response:
+    data = service.workspace_backup()
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="simuloom-workspace.zip"'},
+    )
+
+
+@router.post("/workspace/restore", response_model=WorkspaceRestoreResult)
+async def restore_workspace(
+    backup: Annotated[UploadFile, File()], principal: AdminPrincipal
+) -> WorkspaceRestoreResult:
+    from simuloom.core.workspace_backup import MAX_WORKSPACE_BACKUP_SIZE
+
+    data = await backup.read(MAX_WORKSPACE_BACKUP_SIZE + 1)
+    try:
+        return service.restore_workspace(data, principal.subject)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

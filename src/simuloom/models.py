@@ -51,6 +51,17 @@ class SessionView(BaseModel):
     authentication_enabled: bool
 
 
+class WorkspaceReadiness(BaseModel):
+    status: Literal["ready", "degraded"]
+    runtime: str
+    runtime_ready: bool
+    workspace_format: str
+    workspace_schema_version: int
+    supported_workspace_schema_version: int
+    workspace_writable: bool
+    simulation_count: int = Field(ge=0)
+
+
 class DataGenerationRequest(BaseModel):
     records: int = Field(default=25, ge=1, le=10_000)
     seed: int = 1207
@@ -267,6 +278,8 @@ class ScenarioResponseDefinition(BaseModel):
     status: int = Field(ge=100, le=599)
     headers: dict[str, str] = Field(default_factory=dict)
     json_body: Any = None
+    delay_ms: int = Field(default=0, ge=0, le=60_000)
+    fault: Literal["empty-response", "connection-reset", "malformed-response"] | None = None
 
     @model_validator(mode="after")
     def reject_unsafe_headers(self) -> ScenarioResponseDefinition:
@@ -284,15 +297,28 @@ class ScenarioHandler(BaseModel):
     new_state: str | None = Field(default=None, min_length=1, max_length=80)
 
 
+class ScenarioEventTransition(BaseModel):
+    topic: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    new_state: str = Field(min_length=1, max_length=80)
+
+
 class ScenarioStateDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
     handlers: list[ScenarioHandler] = Field(min_length=1, max_length=50)
+    timeout_ms: int | None = Field(default=None, ge=1, le=86_400_000)
+    timeout_state: str | None = Field(default=None, min_length=1, max_length=80)
+    event_transitions: list[ScenarioEventTransition] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validate_unique_handlers(self) -> ScenarioStateDefinition:
         names = [handler.name for handler in self.handlers]
         if len(names) != len(set(names)):
             raise ValueError(f"Scenario state '{self.name}' contains duplicate handler names")
+        if (self.timeout_ms is None) != (self.timeout_state is None):
+            raise ValueError("timeout_ms and timeout_state must be configured together")
+        topics = [transition.topic for transition in self.event_transitions]
+        if len(topics) != len(set(topics)):
+            raise ValueError(f"Scenario state '{self.name}' contains duplicate event topics")
         return self
 
 
@@ -327,6 +353,18 @@ class ScenarioDefinition(BaseModel):
                     f"Scenario handler '{handler.name}' references unknown state "
                     f"'{handler.new_state}'"
                 )
+        for state in self.states:
+            if state.timeout_state is not None and state.timeout_state not in known:
+                raise ValueError(
+                    f"Scenario state '{state.name}' timeout references unknown state "
+                    f"'{state.timeout_state}'"
+                )
+            for transition in state.event_transitions:
+                if transition.new_state not in known:
+                    raise ValueError(
+                        f"Scenario state '{state.name}' event '{transition.topic}' "
+                        f"references unknown state '{transition.new_state}'"
+                    )
         return self
 
     @property
@@ -445,6 +483,86 @@ class ScenarioRelease(BaseModel):
     status: Literal["deployed"] = "deployed"
 
 
+class ScenarioReleasePolicy(BaseModel):
+    require_approval: bool = False
+    block_breaking_changes: bool = False
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class ScenarioReview(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    review_number: int
+    revision: int
+    etag: str
+    status: Literal["pending", "approved", "rejected"]
+    requested_at: datetime
+    requested_by: str
+    request_note: str = ""
+    decided_at: datetime | None = None
+    decided_by: str | None = None
+    decision_note: str = ""
+
+
+class ScenarioReviewRequest(BaseModel):
+    note: str = Field(default="", max_length=500)
+
+
+class ScenarioReviewDecision(BaseModel):
+    note: str = Field(default="", max_length=500)
+
+
+class ScenarioReleasePolicyUpdate(BaseModel):
+    require_approval: bool = False
+    block_breaking_changes: bool = False
+
+
+class ScenarioPromotionRequest(BaseModel):
+    target_simulation_id: str
+    target_scenario_id: str | None = None
+    expected_target_etag: str | None = None
+
+
+class ScenarioPromotionResult(BaseModel):
+    source_simulation_id: str
+    source_scenario_id: str
+    source_revision: int
+    target_simulation_id: str
+    target_scenario_id: str
+    target_revision: int
+    target_etag: str
+    promoted_by: str
+    status: Literal["promoted"] = "promoted"
+
+
+class ScenarioTemplate(BaseModel):
+    template_id: str
+    name: str
+    description: str
+    definition: ScenarioDefinition
+    created_at: datetime
+    created_by: str
+    source_simulation_id: str
+    source_scenario_id: str
+    source_revision: int
+    parameters: list[str] = Field(default_factory=list)
+
+
+class ScenarioTemplateCreate(BaseModel):
+    template_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    name: str = Field(min_length=3, max_length=100)
+    description: str = Field(default="", max_length=500)
+    parameterize: dict[str, str] = Field(default_factory=dict, max_length=50)
+
+
+class ScenarioTemplateInstantiate(BaseModel):
+    simulation_id: str
+    scenario_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    expected_etag: str | None = None
+    parameters: dict[str, str] = Field(default_factory=dict, max_length=50)
+
+
 class ScenarioResetResult(BaseModel):
     simulation_id: str
     scenario_id: str
@@ -456,3 +574,33 @@ class ScenarioResetResult(BaseModel):
 class ScenarioResetAllResult(BaseModel):
     reset_scenarios: int
     status: Literal["reset"]
+
+
+class ScenarioClockAdvance(BaseModel):
+    milliseconds: int = Field(ge=1, le=604_800_000)
+
+
+class ScenarioClockView(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    elapsed_ms: int
+    current_state: str
+    transitions_applied: list[str] = Field(default_factory=list)
+
+
+class ScenarioEventPublish(BaseModel):
+    topic: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    payload: Any = None
+
+
+class ScenarioEventResult(BaseModel):
+    simulation_id: str
+    topic: str
+    transitioned_scenarios: dict[str, str] = Field(default_factory=dict)
+    event_id: str
+
+
+class WorkspaceRestoreResult(BaseModel):
+    restored_files: int
+    restored_bytes: int
+    status: Literal["restored"] = "restored"

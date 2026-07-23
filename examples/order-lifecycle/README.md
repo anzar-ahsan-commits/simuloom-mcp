@@ -134,6 +134,20 @@ curl -sS "$SCENARIO_URL/releases" | jq .
 curl -sS -X POST "$SCENARIO_URL/releases/1/rollback" | jq .
 ```
 
+For governed deployment, request and approve the immutable revision before deploying:
+
+```bash
+curl -sS -X PUT \
+  "http://localhost:8000/api/v1/simulations/$SIMULATION_ID/release-policy" \
+  -H 'Content-Type: application/json' \
+  -d '{"require_approval":true,"block_breaking_changes":false}' | jq .
+curl -sS -X POST "$SCENARIO_URL/history/1/review" \
+  -H 'Content-Type: application/json' -d '{"note":"ready"}' | jq .
+curl -sS -X POST "$SCENARIO_URL/reviews/1/approve" \
+  -H 'Content-Type: application/json' -d '{"note":"approved"}' | jq .
+curl -sS -X POST "$SCENARIO_URL/deploy" | jq .
+```
+
 Generate and execute evidence for every reachable state and transition:
 
 ```bash
