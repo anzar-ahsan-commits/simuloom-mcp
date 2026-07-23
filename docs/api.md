@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.15.0 adds the Visual Scenario Designer and additive discovery/diagnostic APIs.
+SimuLoom v0.16.0 adds safe concurrent scenario editing and immutable revision history.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -10,6 +10,9 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | --- | --- | --- | --- |
 | PUT | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}` | operator | Create or replace a validated definition |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}` | viewer | Read its stored definition |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history` | viewer | List revisions, newest first |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}` | viewer | Read an immutable revision |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/restore` | operator | Restore it as a new revision |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/state` | viewer | Read live WireMock state |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/compile` | operator | Generate mappings |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/deploy` | operator | Compile, deploy, and initialize |
@@ -67,8 +70,34 @@ response framing headers are rejected.
 
 - `404`: simulation or scenario does not exist.
 - `409`: a runtime operation requires a scenario to be deployed first.
+- `409`: an `If-Match` value is stale; detail includes the current ETag and revision.
 - `422`: invalid ID, graph, contract operation, status, or response schema.
 - `502`: runtime inspection, deployment, or reset failed.
+
+## Safe editing and revision history
+
+Scenario GET and PUT responses include `revision`, `etag`, `updated_at`, and `updated_by`, and
+also return the ETag in the HTTP `ETag` header. Send that value back in `If-Match` to prevent an
+older editor from silently replacing newer work. Omitting `If-Match` preserves compatibility
+with older clients. Saving an unchanged definition does not create a revision.
+
+```bash
+BASE=http://localhost:8000/api/v1/simulations/$SIMULATION_ID/scenarios/order-lifecycle
+
+curl -sS -D /tmp/scenario-headers "$BASE" -o /tmp/scenario-current.json
+ETAG=$(awk 'tolower($1)=="etag:" {gsub("\\r", "", $2); print $2}' /tmp/scenario-headers)
+jq '.definition.description = "Edited safely" | .definition' \
+  /tmp/scenario-current.json >/tmp/scenario-edited.json
+curl -sS -X PUT "$BASE" -H 'Content-Type: application/json' \
+  -H "If-Match: $ETAG" --data-binary @/tmp/scenario-edited.json | jq .
+
+curl -sS "$BASE/history" | jq .
+CURRENT_ETAG=$(curl -sSI "$BASE" | awk 'tolower($1)=="etag:" {gsub("\\r", "", $2); print $2}')
+curl -sS -X POST "$BASE/history/1/restore" -H "If-Match: $CURRENT_ETAG" | jq .
+```
+
+Pre-v0.16 scenarios are adopted as revision 1 on first access without changing their
+definition. Restoring an older definition creates a new head revision; history is retained.
 
 ## Scenario validation
 
@@ -136,7 +165,7 @@ invalid values; focused negative behavior remains part of v0.10 edge-case valida
 
 ## MCP
 
-Tools: `configure_scenario`, `inspect_scenario`, `compile_scenario`,
+Tools: `configure_scenario`, `scenario_history`, `restore_scenario_revision`, `inspect_scenario`, `compile_scenario`,
 `deploy_scenario`, `reset_scenario`, and `reset_all_scenarios`.
 
 The existing `plan_validation` and `run_validation` MCP tools accept the same edge-case
@@ -145,6 +174,7 @@ and pairwise options as REST.
 Resources:
 
 - `scenario://{simulation_id}/{scenario_id}/definition`
+- `scenario://{simulation_id}/{scenario_id}/history`
 - `scenario://{simulation_id}/{scenario_id}/state`
 - `runtime://current/capabilities`
 

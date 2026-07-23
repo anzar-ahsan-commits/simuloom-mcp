@@ -109,6 +109,22 @@ curl -fsS -X POST "$SERVICE_BASE/orders" \
   -d '{"itemId":"ITEM-SYN-001","quantity":1}'
 ```
 
+Safe editing keeps every saved definition and rejects stale editors. The ETag returned by GET
+can be copied directly into `If-Match`:
+
+```bash
+SCENARIO_URL="http://localhost:8000/api/v1/simulations/$SIMULATION_ID/scenarios/order-lifecycle"
+curl -sS -D /tmp/order-scenario.headers "$SCENARIO_URL" -o /tmp/order-scenario.json
+ETAG=$(awk 'tolower($1)=="etag:" {gsub("\\r", "", $2); print $2}' /tmp/order-scenario.headers)
+
+jq '.definition.description = "Safely edited order lifecycle" | .definition' \
+  /tmp/order-scenario.json >/tmp/order-scenario-edited.json
+curl -sS -X PUT "$SCENARIO_URL" -H 'Content-Type: application/json' \
+  -H "If-Match: $ETAG" --data-binary @/tmp/order-scenario-edited.json | jq .
+
+curl -sS "$SCENARIO_URL/history" | jq .
+```
+
 Generate and execute evidence for every reachable state and transition:
 
 ```bash

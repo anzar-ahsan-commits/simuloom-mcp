@@ -21,8 +21,12 @@ async function api(path, options = {}) {
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("json") ? await response.json() : await response.text();
   if (!response.ok) {
-    const message = typeof payload === "object" ? payload.detail || JSON.stringify(payload) : payload;
-    throw new Error(message || `Request failed with ${response.status}`);
+    const detail = typeof payload === "object" ? payload.detail : payload;
+    const message = typeof detail === "string" ? detail : detail?.message || JSON.stringify(detail || payload);
+    const error = new Error(message || `Request failed with ${response.status}`);
+    error.status = response.status;
+    error.detail = detail;
+    throw error;
   }
   return payload;
 }
@@ -53,6 +57,8 @@ function showResult(title, payload) {
 }
 
 function switchView(name) {
+  if (name !== "scenarios" && typeof designerIsDirty === "function" && designerIsDirty()
+      && !window.confirm("Leave the designer and discard your unsaved changes?")) return;
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${name}-view`));
   $$(".nav-item[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
   $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : "Simulation workspace";

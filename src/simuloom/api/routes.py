@@ -1,11 +1,24 @@
+import re
 from typing import Annotated
 
 import yaml
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 from simuloom.container import service
 from simuloom.core.manifest import MAX_BUNDLE_SIZE
+from simuloom.core.scenario_revisions import ScenarioConflictError
 from simuloom.models import (
     CompileResult,
     ContractRequest,
@@ -28,6 +41,8 @@ from simuloom.models import (
     ScenarioGraphDiagnostic,
     ScenarioResetAllResult,
     ScenarioResetResult,
+    ScenarioRevision,
+    ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
     ScenarioView,
@@ -46,6 +61,25 @@ MAX_CONTRACT_UPLOAD_SIZE = 2 * 1024 * 1024
 ViewerPrincipal = Annotated[Principal, Depends(require_role(Role.VIEWER))]
 OperatorPrincipal = Annotated[Principal, Depends(require_role(Role.OPERATOR))]
 AdminPrincipal = Annotated[Principal, Depends(require_role(Role.ADMIN))]
+
+
+def _etag_header(etag: str) -> str:
+    return f'"{etag}"'
+
+
+def _parse_if_match(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if normalized.startswith("W/"):
+        raise ValueError("If-Match requires a strong ETag")
+    if normalized.startswith('"') and normalized.endswith('"'):
+        normalized = normalized[1:-1]
+    elif '"' in normalized:
+        raise ValueError("If-Match contains an invalid ETag")
+    if not re.fullmatch(r"[0-9a-f]{64}", normalized):
+        raise ValueError("If-Match must contain one SimuLoom scenario ETag")
+    return normalized
 
 
 @router.get("/health")
@@ -318,10 +352,31 @@ def configure_scenario(
     simulation_id: str,
     scenario_id: str,
     definition: ScenarioDefinition,
-    _principal: OperatorPrincipal,
+    principal: OperatorPrincipal,
+    response: Response,
+    if_match: Annotated[str | None, Header()] = None,
 ) -> ScenarioView:
     try:
-        return service.configure_scenario(simulation_id, scenario_id, definition)
+        view = service.configure_scenario(
+            simulation_id,
+            scenario_id,
+            definition,
+            principal.subject,
+            _parse_if_match(if_match),
+        )
+        response.headers["ETag"] = _etag_header(view.etag)
+        return view
+    except ScenarioConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "scenario-edit-conflict",
+                "message": str(exc),
+                "expected_etag": exc.expected_etag,
+                "current_etag": exc.current_etag,
+                "current_revision": exc.current_revision,
+            },
+        ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -332,10 +387,91 @@ def configure_scenario(
     "/simulations/{simulation_id}/scenarios/{scenario_id}",
     response_model=ScenarioView,
 )
-def get_scenario(simulation_id: str, scenario_id: str, _principal: ViewerPrincipal) -> ScenarioView:
+def get_scenario(
+    simulation_id: str,
+    scenario_id: str,
+    _principal: ViewerPrincipal,
+    response: Response,
+) -> ScenarioView:
     try:
-        return service.get_scenario(simulation_id, scenario_id)
+        view = service.get_scenario(simulation_id, scenario_id)
+        response.headers["ETag"] = _etag_header(view.etag)
+        return view
     except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history",
+    response_model=list[ScenarioRevisionSummary],
+)
+def scenario_history(
+    simulation_id: str,
+    scenario_id: str,
+    _principal: ViewerPrincipal,
+) -> list[ScenarioRevisionSummary]:
+    try:
+        return service.scenario_history(simulation_id, scenario_id)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}",
+    response_model=ScenarioRevision,
+)
+def get_scenario_revision(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    _principal: ViewerPrincipal,
+) -> ScenarioRevision:
+    try:
+        return service.scenario_revision(simulation_id, scenario_id, revision)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/restore",
+    response_model=ScenarioView,
+)
+def restore_scenario_revision(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    principal: OperatorPrincipal,
+    response: Response,
+    if_match: Annotated[str | None, Header()] = None,
+) -> ScenarioView:
+    try:
+        view = service.restore_scenario_revision(
+            simulation_id,
+            scenario_id,
+            revision,
+            principal.subject,
+            _parse_if_match(if_match),
+        )
+        response.headers["ETag"] = _etag_header(view.etag)
+        return view
+    except ScenarioConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "scenario-edit-conflict",
+                "message": str(exc),
+                "expected_etag": exc.expected_etag,
+                "current_etag": exc.current_etag,
+                "current_revision": exc.current_revision,
+            },
+        ) from exc
+    except (KeyError, FileNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

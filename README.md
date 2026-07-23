@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.15.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.16.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -39,6 +39,7 @@ the same deterministic application services are available through REST and MCP.
 - Persist native mappings, scenario state, and bounded journals across restarts with SQLite.
 - Operate the core simulation workflow from a bundled, role-aware web console.
 - Build portable stateful scenarios with a visual SVG graph and contract-aware inspector.
+- Safely edit scenarios with immutable revision history, ETags, conflict detection, and restore.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -162,6 +163,9 @@ GET  /api/v1/simulations/{id}/data
 POST /api/v1/simulations/{id}/compile
 PUT  /api/v1/simulations/{id}/scenarios/{scenario_id}
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/history
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/restore
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/state
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/compile
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/deploy
@@ -429,6 +433,8 @@ trusted: SimuLoom recompiles them from the validated contract, dataset, and prof
 - `export_simulation`
 - `import_simulation_bundle`
 - `configure_scenario`
+- `scenario_history`
+- `restore_scenario_revision`
 - `inspect_scenario`
 - `compile_scenario`
 - `deploy_scenario`
@@ -448,6 +454,9 @@ The latest evidence is available as `evidence://{simulation_id}/latest`.
 
 Scenario definitions are available as
 `scenario://{simulation_id}/{scenario_id}/definition`.
+
+Immutable revision metadata is available as
+`scenario://{simulation_id}/{scenario_id}/history`.
 
 Live runtime state is available as
 `scenario://{simulation_id}/{scenario_id}/state`.
