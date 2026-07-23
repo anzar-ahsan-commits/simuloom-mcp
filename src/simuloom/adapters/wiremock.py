@@ -15,7 +15,7 @@ class WireMockClient:
         self.timeout = timeout
 
     def capabilities(self) -> RuntimeCapabilities:
-        return RuntimeCapabilities(runtime="wiremock")
+        return RuntimeCapabilities(runtime="wiremock", persistent=True, storage="wiremock")
 
     async def health(self) -> bool:
         async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:

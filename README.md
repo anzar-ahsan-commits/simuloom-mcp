@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.12.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.13.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -36,6 +36,7 @@ the same deterministic application services are available through REST and MCP.
 - Record request outcomes in a tamper-evident JSONL audit chain.
 - Deploy mappings to the default WireMock adapter or the in-process native runtime.
 - Discover the selected runtime and its capabilities through REST and MCP.
+- Persist native mappings, scenario state, and bounded journals across restarts with SQLite.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -72,7 +73,8 @@ curl http://localhost:8000/api/v1/runtime
 
 Deployed virtual services are then available under
 `http://localhost:8000/runtime/{simulation_id}/{service_path}`. Each simulation has isolated
-mappings, scenario state, and journal entries within the process.
+mappings, scenario state, and journal entries. Docker stores the native SQLite database in
+the existing workspace volume, so deployed behavior resumes after restart.
 
 ## Run locally
 
@@ -84,6 +86,11 @@ uv run uvicorn simuloom.main:app --reload
 Run WireMock separately or override `WIREMOCK_URL` to point to an existing instance. For a
 dependency-free local runtime, set `SIMULOOM_RUNTIME=native`; optionally set
 `SIMULOOM_NATIVE_RUNTIME_URL` to the externally reachable façade URL.
+
+Native storage defaults to SQLite at `workspace/runtime/native.db`. Set
+`SIMULOOM_NATIVE_RUNTIME_STORE=memory` for an ephemeral run, or configure
+`SIMULOOM_NATIVE_RUNTIME_DB` and `SIMULOOM_NATIVE_JOURNAL_LIMIT` (default `1000` events per
+simulation). Capability discovery reports the active storage mode and retention limit.
 
 ## Authentication and roles
 
@@ -421,8 +428,8 @@ Selected-runtime capabilities are available as `runtime://current/capabilities`.
 
 Deployment preserves existing WireMock mappings by default. Set `reset_existing` explicitly
 only when SimuLoom owns the entire target WireMock instance. This reset requires `admin`.
-For the native adapter, mappings and state are process-local and are lost on restart; deploy
-again from the persisted simulation workspace after restarting SimuLoom.
+For the default native SQLite store, mappings, state, and recent request events survive
+restarts. Memory mode is process-local and intentionally ephemeral.
 
 ## Audit evidence
 
@@ -447,7 +454,7 @@ append to a corrupted log.
 
 ## Next milestones
 
-1. Persistent or distributed native runtime state.
+1. Distributed native runtime coordination and multi-worker execution.
 2. Additional external runtime adapters and adapter conformance suites.
 3. External identity-provider integration and short-lived credentials.
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.0 - Durable Native Runtime
+
+- Added SQLite-backed persistence for native mappings, scenario state, and request journals.
+- Added automatic native runtime restoration after application and container restarts.
+- Added configurable memory or SQLite storage and bounded per-simulation journal retention.
+- Added storage and persistence metadata to REST and MCP runtime capabilities.
+- Added schema-version validation, simulation isolation, retention, and restart coverage.
+- Preserved WireMock as the default runtime and retained all v0.12 API behavior.
+
 ## 0.12.0 - Pluggable Runtime Adapters
 
 - Added a vendor-neutral mapping model and runtime adapter protocol.
