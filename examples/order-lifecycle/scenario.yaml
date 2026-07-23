@@ -1,0 +1,96 @@
+name: Order lifecycle
+description: Deterministic create, payment, shipment, inspection, and reset flow.
+initial_state: NOT_CREATED
+reset:
+  target_state: NOT_CREATED
+states:
+  - name: NOT_CREATED
+    handlers:
+      - name: create-order
+        request:
+          method: POST
+          path: /orders
+          json_body:
+            itemId: ITEM-SYN-001
+            quantity: 1
+        response:
+          status: 201
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: PENDING
+            synthetic: true
+        new_state: PENDING
+  - name: PENDING
+    handlers:
+      - name: inspect-pending-order
+        request:
+          method: GET
+          path: /orders/ORD-SYN-001
+        response:
+          status: 200
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: PENDING
+            synthetic: true
+      - name: pay-order
+        request:
+          method: POST
+          path: /orders/ORD-SYN-001/payment
+          json_body:
+            paymentToken: PAY-SYN-001
+        response:
+          status: 200
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: PAID
+            synthetic: true
+        new_state: PAID
+  - name: PAID
+    handlers:
+      - name: inspect-paid-order
+        request:
+          method: GET
+          path: /orders/ORD-SYN-001
+        response:
+          status: 200
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: PAID
+            synthetic: true
+      - name: ship-order
+        request:
+          method: POST
+          path: /orders/ORD-SYN-001/shipment
+          json_body:
+            carrier: SYNTHETIC-CARRIER
+        response:
+          status: 200
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: SHIPPED
+            synthetic: true
+        new_state: SHIPPED
+  - name: SHIPPED
+    handlers:
+      - name: inspect-shipped-order
+        request:
+          method: GET
+          path: /orders/ORD-SYN-001
+        response:
+          status: 200
+          json_body:
+            orderId: ORD-SYN-001
+            itemId: ITEM-SYN-001
+            quantity: 1
+            status: SHIPPED
+            synthetic: true

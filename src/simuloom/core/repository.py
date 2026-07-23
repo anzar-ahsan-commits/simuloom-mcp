@@ -22,6 +22,7 @@ class WorkspaceRepository:
         (directory / "reports").mkdir()
         (directory / "exports").mkdir()
         self.write_json(simulation_id, "contract.json", contract)
+        (directory / "scenarios").mkdir()
         self.write_json(
             simulation_id,
             "simulation.json",
@@ -69,6 +70,44 @@ class WorkspaceRepository:
         if not path.is_file():
             raise FileNotFoundError(f"Artifact not found: {relative_path}")
         return path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def validate_scenario_id(scenario_id: str) -> None:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", scenario_id):
+            raise ValueError("Invalid scenario id")
+
+    def read_scenarios(self, simulation_id: str) -> dict[str, Any]:
+        if not self.exists(simulation_id):
+            raise KeyError(f"Simulation not found: {simulation_id}")
+        try:
+            payload = self.read_json(simulation_id, "scenarios/scenarios.json")
+        except FileNotFoundError:
+            return {}
+        if not isinstance(payload, dict):
+            raise ValueError("Stored scenario collection must be an object")
+        return payload
+
+    def read_scenario(self, simulation_id: str, scenario_id: str) -> dict[str, Any]:
+        self.validate_scenario_id(scenario_id)
+        scenarios = self.read_scenarios(simulation_id)
+        if scenario_id not in scenarios:
+            raise KeyError(f"Scenario not found: {scenario_id}")
+        return scenarios[scenario_id]
+
+    def write_scenario(
+        self, simulation_id: str, scenario_id: str, definition: dict[str, Any]
+    ) -> None:
+        self.validate_scenario_id(scenario_id)
+        scenarios = self.read_scenarios(simulation_id)
+        scenarios[scenario_id] = definition
+        self.write_json(simulation_id, "scenarios/scenarios.json", scenarios)
+
+    def simulation_ids(self) -> list[str]:
+        return sorted(
+            path.name
+            for path in self.root.iterdir()
+            if path.is_dir() and (path / "simulation.json").is_file()
+        )
 
     def update_status(self, simulation_id: str, status: str) -> None:
         metadata = self.read_json(simulation_id, "simulation.json")

@@ -13,7 +13,11 @@ from simuloom.core.compiler import (
 )
 from simuloom.core.contracts import analyze_contract, is_eligibility_contract
 from simuloom.core.data import generate_members
-from simuloom.core.evidence import EvidenceEngine, build_validation_cases
+from simuloom.core.evidence import (
+    EvidenceEngine,
+    build_scenario_validation_cases,
+    build_validation_cases,
+)
 from simuloom.core.manifest import (
     build_manifest,
     dump_manifest,
@@ -23,6 +27,11 @@ from simuloom.core.manifest import (
     export_bundle as create_export_bundle,
 )
 from simuloom.core.repository import WorkspaceRepository
+from simuloom.core.scenarios import (
+    compile_scenario_mappings,
+    validate_scenario_contract,
+    wiremock_scenario_name,
+)
 from simuloom.models import (
     CompileResult,
     ContractSummary,
@@ -33,6 +42,13 @@ from simuloom.models import (
     ExportResult,
     ImportResult,
     ProfileResult,
+    ScenarioCompileResult,
+    ScenarioDefinition,
+    ScenarioDeployResult,
+    ScenarioResetAllResult,
+    ScenarioResetResult,
+    ScenarioRuntimeState,
+    ScenarioView,
     Simulation,
     ValidationPlan,
     ValidationPlanCase,
@@ -60,6 +76,106 @@ class SimulationService:
 
     def get(self, simulation_id: str) -> dict[str, Any]:
         return self.repository.read_json(simulation_id, "simulation.json")
+
+    def configure_scenario(
+        self, simulation_id: str, scenario_id: str, definition: ScenarioDefinition
+    ) -> ScenarioView:
+        self._require_simulation(simulation_id)
+        contract = self.repository.read_json(simulation_id, "contract.json")
+        validate_scenario_contract(contract, definition)
+        self.repository.write_scenario(
+            simulation_id, scenario_id, definition.model_dump(mode="json")
+        )
+        return ScenarioView(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            definition=definition,
+        )
+
+    def get_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioView:
+        self._require_simulation(simulation_id)
+        definition = ScenarioDefinition.model_validate(
+            self.repository.read_scenario(simulation_id, scenario_id)
+        )
+        return ScenarioView(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            definition=definition,
+        )
+
+    def compile_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioCompileResult:
+        view = self.get_scenario(simulation_id, scenario_id)
+        contract = self.repository.read_json(simulation_id, "contract.json")
+        validate_scenario_contract(contract, view.definition)
+        mappings = compile_scenario_mappings(simulation_id, scenario_id, view.definition)
+        self.repository.write_json(
+            simulation_id, f"mappings/scenarios/{scenario_id}.json", mappings
+        )
+        return ScenarioCompileResult(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            wiremock_scenario_name=wiremock_scenario_name(simulation_id, scenario_id),
+            mapping_count=len(mappings),
+            status="compiled",
+        )
+
+    async def scenario_state(self, simulation_id: str, scenario_id: str) -> ScenarioRuntimeState:
+        view = self.get_scenario(simulation_id, scenario_id)
+        name = wiremock_scenario_name(simulation_id, scenario_id)
+        current = await self.wiremock.scenario_state(name)
+        return ScenarioRuntimeState(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            wiremock_scenario_name=name,
+            configured_initial_state=view.definition.initial_state,
+            configured_reset_state=view.definition.reset_state,
+            current_state=current,
+            deployed=current is not None,
+        )
+
+    async def deploy_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioDeployResult:
+        view = self.get_scenario(simulation_id, scenario_id)
+        compiled = self.compile_scenario(simulation_id, scenario_id)
+        mappings = self.repository.read_json(
+            simulation_id, f"mappings/scenarios/{scenario_id}.json"
+        )
+        deployed = await self.wiremock.deploy_scenario(
+            mappings, compiled.wiremock_scenario_name, view.definition.initial_state
+        )
+        return ScenarioDeployResult(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            wiremock_scenario_name=compiled.wiremock_scenario_name,
+            deployed_mappings=deployed,
+            current_state=view.definition.initial_state,
+            status="deployed",
+        )
+
+    async def reset_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioResetResult:
+        view = self.get_scenario(simulation_id, scenario_id)
+        name = wiremock_scenario_name(simulation_id, scenario_id)
+        if await self.wiremock.scenario_state(name) is None:
+            raise RuntimeError("Deploy this scenario before resetting it")
+        await self.wiremock.set_scenario_state(name, view.definition.reset_state)
+        return ScenarioResetResult(
+            simulation_id=simulation_id,
+            scenario_id=scenario_id,
+            wiremock_scenario_name=name,
+            current_state=view.definition.reset_state,
+            status="reset",
+        )
+
+    async def reset_all_scenarios(self) -> ScenarioResetAllResult:
+        await self.wiremock.reset_all_scenarios()
+        reset_count = 0
+        for simulation_id in self.repository.simulation_ids():
+            for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
+                definition = ScenarioDefinition.model_validate(payload)
+                name = wiremock_scenario_name(simulation_id, scenario_id)
+                if await self.wiremock.scenario_state(name) is not None:
+                    await self.wiremock.set_scenario_state(name, definition.reset_state)
+                    reset_count += 1
+        return ScenarioResetAllResult(reset_scenarios=reset_count, status="reset")
 
     def generate_data(self, simulation_id: str, records: int, seed: int) -> DataGenerationResult:
         self._require_simulation(simulation_id)
@@ -140,13 +256,25 @@ class SimulationService:
 
         stateful_mappings, stateful_operations = compile_eligibility_journey(contract)
         overridden_operations.update(stateful_operations)
+        configured_scenario_mappings: list[dict[str, Any]] = []
+        for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
+            definition = ScenarioDefinition.model_validate(payload)
+            validate_scenario_contract(contract, definition)
+            configured_scenario_mappings.extend(
+                compile_scenario_mappings(simulation_id, scenario_id, definition)
+            )
 
         active_contract_mappings = [
             mapping
             for mapping in contract_mappings
             if mapping.get("metadata", {}).get("simuloomOperationId") not in overridden_operations
         ]
-        base_mappings = [*dataset_mappings, *stateful_mappings, *active_contract_mappings]
+        base_mappings = [
+            *dataset_mappings,
+            *stateful_mappings,
+            *configured_scenario_mappings,
+            *active_contract_mappings,
+        ]
         fallback_count = sum(
             1
             for mapping in dataset_mappings
@@ -169,7 +297,8 @@ class SimulationService:
                 "contractMappingCount": len(active_contract_mappings),
                 "datasetMappingCount": len(dataset_mappings) - fallback_count,
                 "fallbackMappingCount": fallback_count,
-                "statefulMappingCount": len(stateful_mappings),
+                "statefulMappingCount": len(stateful_mappings) + len(configured_scenario_mappings),
+                "configuredScenarioMappingCount": len(configured_scenario_mappings),
                 "activeProfile": profile["name"],
             },
         )
@@ -180,7 +309,7 @@ class SimulationService:
             contract_mapping_count=len(active_contract_mappings),
             dataset_mapping_count=len(dataset_mappings) - fallback_count,
             fallback_mapping_count=fallback_count,
-            stateful_mapping_count=len(stateful_mappings),
+            stateful_mapping_count=len(stateful_mappings) + len(configured_scenario_mappings),
             active_profile=profile["name"],
             status="compiled",
         )
@@ -226,6 +355,12 @@ class SimulationService:
             self.compile(simulation_id)
             mappings = self.repository.read_json(simulation_id, "mappings/mappings.json")
         deployed = await self.wiremock.deploy(mappings, reset_existing)
+        for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
+            definition = ScenarioDefinition.model_validate(payload)
+            await self.wiremock.set_scenario_state(
+                wiremock_scenario_name(simulation_id, scenario_id),
+                definition.initial_state,
+            )
         self.repository.update_status(simulation_id, "deployed")
         return DeployResult(
             simulation_id=simulation_id,
@@ -263,6 +398,9 @@ class SimulationService:
         cases = build_validation_cases(
             contract, members, profile, max_dataset_cases, contract_cases
         )
+        cases.extend(
+            build_scenario_validation_cases(contract, self.repository.read_scenarios(simulation_id))
+        )
         planned = [
             ValidationPlanCase(
                 name=case.name,
@@ -274,6 +412,11 @@ class SimulationService:
                 headers=case.headers,
                 body=case.body,
                 validates_response_schema=case.response_schema is not None,
+                scenario_id=case.scenario_id,
+                scenario_handler=case.scenario_handler,
+                required_state=case.required_state,
+                new_state=case.new_state,
+                reset_before=case.reset_before,
             )
             for case in cases
         ]
@@ -331,6 +474,10 @@ class SimulationService:
                     "seed": int(data_spec["seed"]),
                     "synthetic": True,
                 },
+            )
+        if contents.scenarios:
+            self.repository.write_json(
+                simulation.id, "scenarios/scenarios.json", contents.scenarios
             )
         profile = contents.profile
         self.repository.write_json(simulation.id, "behavior/profile.json", profile)

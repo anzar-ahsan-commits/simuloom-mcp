@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -40,6 +41,53 @@ class WireMockClient:
             scenarios.raise_for_status()
             requests = await client.delete(f"{self.base_url}/__admin/requests")
             requests.raise_for_status()
+
+    async def scenario_state(self, scenario_name: str) -> str | None:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
+            response = await client.get(f"{self.base_url}/__admin/scenarios")
+            response.raise_for_status()
+            for scenario in response.json().get("scenarios", []):
+                if scenario.get("name") == scenario_name:
+                    return str(scenario.get("state"))
+        return None
+
+    async def set_scenario_state(self, scenario_name: str, state: str) -> None:
+        encoded = quote(scenario_name, safe=":")
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
+            response = await client.put(
+                f"{self.base_url}/__admin/scenarios/{encoded}/state",
+                json={"state": state},
+            )
+            response.raise_for_status()
+
+    async def remove_scenario_mappings(self, scenario_name: str) -> None:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
+            response = await client.get(f"{self.base_url}/__admin/mappings")
+            response.raise_for_status()
+            mappings = response.json().get("mappings", [])
+            for mapping in mappings:
+                if mapping.get("scenarioName") == scenario_name and mapping.get("id"):
+                    deleted = await client.delete(
+                        f"{self.base_url}/__admin/mappings/{mapping['id']}"
+                    )
+                    deleted.raise_for_status()
+
+    async def deploy_scenario(
+        self, mappings: list[dict[str, Any]], scenario_name: str, initial_state: str
+    ) -> int:
+        await self.remove_scenario_mappings(scenario_name)
+        try:
+            deployed = await self.deploy(mappings, reset_existing=False)
+            await self.set_scenario_state(scenario_name, initial_state)
+            return deployed
+        except Exception:
+            await self.remove_scenario_mappings(scenario_name)
+            raise
+
+    async def reset_all_scenarios(self) -> None:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
+            response = await client.post(f"{self.base_url}/__admin/scenarios/reset")
+            response.raise_for_status()
 
     async def execute(
         self,

@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.7.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.9.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -16,11 +16,15 @@ the same deterministic application services are available through REST and MCP.
 - Preview validation cases before deployment and cover every contract operation.
 - Inspect generated datasets through REST or MCP resources.
 - Turn synthetic member records into exact, correlated request/response mappings.
+- Configure portable, contract-validated multi-step scenarios.
+- Inspect, deploy, and reset individual WireMock scenario state.
+- Reset every deployed scenario through an admin-only operation.
 - Return a deterministic 404 response for unknown synthetic member IDs.
 - Activate normal, slow, unavailable, and deterministic intermittent profiles.
 - Simulate a contract-backed `SUBMITTED → PROCESSING → COMPLETED` journey.
 - Execute live validation cases against WireMock and validate 2xx response schemas.
-- Calculate operation/scenario coverage and capture unmatched WireMock traffic.
+- Replay every reachable scenario handler from a deterministic initial state.
+- Calculate operation, scenario, state, and transition coverage and capture unmatched traffic.
 - Publish machine-readable JSON and human-readable HTML evidence.
 - Export reproducible, Git-friendly `simulation.yaml` bundles.
 - Safely import portable bundles and regenerate mappings from approved source artifacts.
@@ -104,6 +108,13 @@ POST /api/v1/simulations
 POST /api/v1/simulations/{id}/data
 GET  /api/v1/simulations/{id}/data
 POST /api/v1/simulations/{id}/compile
+PUT  /api/v1/simulations/{id}/scenarios/{scenario_id}
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/state
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/compile
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/deploy
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/reset
+POST /api/v1/scenarios/reset
 PUT  /api/v1/simulations/{id}/profiles/{profile}
 POST /api/v1/simulations/{id}/validation/plan
 POST /api/v1/simulations/{id}/deploy
@@ -181,6 +192,32 @@ GET http://localhost:8080/eligibility/SYN-1207-000001
 The response uses the correlated status, plan, and effective date from that member's
 synthetic dataset record. Any other member ID returns `404 MEMBER_NOT_FOUND`.
 
+## Stateful scenario orchestration
+
+A simulation can contain portable, contract-validated business scenarios. Every handler is
+compiled with WireMock `scenarioName`, `requiredScenarioState`, and, for transitions,
+`newScenarioState`. State-preserving handlers make inspection responses deterministic
+without advancing the workflow.
+
+```text
+PUT  /api/v1/simulations/{id}/scenarios/{scenario_id}
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/state
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/compile
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/deploy
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/reset
+POST /api/v1/scenarios/reset
+```
+
+The individual reset operation requires operator access. The global reset affects the shared
+WireMock runtime and requires admin. Definitions and live state are reported separately so a
+stopped or externally modified WireMock instance is not mistaken for stored configuration.
+
+See [the copy-paste order lifecycle walkthrough](examples/order-lifecycle/README.md) for
+create, pending, payment, paid, shipment, shipped, and reset calls. Detailed endpoint and
+model rules are in [the scenario API guide](docs/api.md).
+
+
 ## Behavior profiles
 
 Activate a profile before deployment:
@@ -230,16 +267,20 @@ POST /api/v1/simulations/{id}/validate
 The evidence engine:
 
 1. Resets WireMock request and scenario state when requested.
-2. Executes generic contract cases or the specialized eligibility scenarios.
-3. Compares actual and expected HTTP statuses.
-4. Validates successful JSON responses against the approved OpenAPI schemas.
-5. Calculates operation and scenario-category coverage.
-6. Reads the WireMock request journal and counts unmatched requests.
-7. Saves `reports/latest.json` and `reports/latest.html`.
+2. Builds bounded shortest-path replays for every handler in every reachable scenario state.
+3. Resets each replay to the configured initial state and asserts its state before and after
+   every request-triggered transition.
+4. Executes generic contract cases and specialized eligibility cases alongside scenarios.
+5. Compares actual and expected HTTP statuses and validates successful JSON responses against
+   the approved OpenAPI schemas.
+6. Calculates operation, scenario, state, and transition coverage.
+7. Reads the WireMock request journal, counts unmatched requests, and saves
+   `reports/latest.json` and `reports/latest.html`.
 
 The HTML report provides a compact dashboard and a case-by-case evidence table. A failed
-schema assertion, unexpected status, execution error, or unmatched request makes the overall
-report fail.
+schema assertion, unexpected status, state mismatch, incomplete declared state/transition
+coverage, execution error, or unmatched request makes the overall report fail. Unreachable
+declared states remain visible as a coverage gap instead of causing unbounded graph traversal.
 
 ## Portable simulations
 
@@ -283,6 +324,12 @@ trusted: SimuLoom recompiles them from the validated contract, dataset, and prof
 - `run_validation`
 - `export_simulation`
 - `import_simulation_bundle`
+- `configure_scenario`
+- `inspect_scenario`
+- `compile_scenario`
+- `deploy_scenario`
+- `reset_scenario`
+- `reset_all_scenarios`
 
 Read-only simulation metadata is available as
 `simulation://{simulation_id}/manifest`.
@@ -294,6 +341,13 @@ The current synthetic dataset is available as
 `dataset://{simulation_id}/current`.
 
 The latest evidence is available as `evidence://{simulation_id}/latest`.
+
+
+Scenario definitions are available as
+`scenario://{simulation_id}/{scenario_id}/definition`.
+
+Live runtime state is available as
+`scenario://{simulation_id}/{scenario_id}/state`.
 
 Deployment preserves existing WireMock mappings by default. Set `reset_existing` explicitly
 only when SimuLoom owns the entire target WireMock instance. This reset requires `admin`.
@@ -321,8 +375,8 @@ append to a corrupted log.
 
 ## Next milestones
 
-1. Pluggable data generators and runtime adapters beyond WireMock.
-2. Schema-derived negative, boundary, and pairwise validation cases.
+1. Schema-derived negative, boundary, and pairwise validation cases.
+2. Pluggable data generators and runtime adapters beyond WireMock.
 3. External identity-provider integration and short-lived credentials.
 
 ## License

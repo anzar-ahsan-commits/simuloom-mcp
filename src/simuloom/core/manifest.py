@@ -14,7 +14,8 @@ from simuloom.core.cases import validate_contract_cases
 from simuloom.core.contracts import contract_fingerprint
 from simuloom.core.data import validate_members
 from simuloom.core.repository import WorkspaceRepository
-from simuloom.models import ExportResult
+from simuloom.core.scenarios import validate_scenario_contract
+from simuloom.models import ExportResult, ScenarioDefinition
 
 MANIFEST_VERSION = "simuloom.io/v1alpha1"
 ALLOWED_BUNDLE_FILES = {
@@ -26,6 +27,7 @@ ALLOWED_BUNDLE_FILES = {
     "behavior/profile.json",
     "mappings/mappings.json",
     "mappings/metadata.json",
+    "scenarios/scenarios.json",
 }
 MAX_BUNDLE_SIZE = 20 * 1024 * 1024
 MAX_ENTRY_SIZE = 10 * 1024 * 1024
@@ -39,11 +41,16 @@ class BundleContents:
     dataset_path: str | None
     dataset_metadata: dict[str, Any]
     profile: dict[str, Any]
+    scenarios: dict[str, Any]
+
+
+def artifact_fingerprint(value: Any) -> str:
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()[:16]
 
 
 def dataset_fingerprint(records: list[dict[str, Any]]) -> str:
-    canonical = json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(canonical).hexdigest()[:16]
+    return artifact_fingerprint(records)
 
 
 def build_manifest(repository: WorkspaceRepository, simulation_id: str) -> dict[str, Any]:
@@ -82,6 +89,13 @@ def build_manifest(repository: WorkspaceRepository, simulation_id: str) -> dict[
             "seed": dataset["seed"],
             "classification": "SYNTHETIC_ONLY",
             "fingerprint": dataset_fingerprint(records),
+        }
+    scenarios = repository.read_scenarios(simulation_id)
+    if scenarios:
+        spec["scenarios"] = {
+            "path": "scenarios/scenarios.json",
+            "count": len(scenarios),
+            "fingerprint": artifact_fingerprint(scenarios),
         }
     return {
         "apiVersion": MANIFEST_VERSION,
@@ -223,6 +237,29 @@ def read_bundle(data: bytes) -> BundleContents:
         if not isinstance(manifest, dict) or not isinstance(contract, dict):
             raise ValueError("Manifest and contract must be objects")
         validate_manifest(manifest, contract)
+        scenario_spec = (manifest.get("spec") or {}).get("scenarios")
+        scenario_artifact = "scenarios/scenarios.json"
+        stored_scenarios: dict[str, Any] = {}
+        if scenario_spec is not None:
+            if not isinstance(scenario_spec, dict):
+                raise ValueError("Manifest spec.scenarios must be an object")
+            if scenario_spec.get("path") != scenario_artifact:
+                raise ValueError("Manifest scenario path must be scenarios/scenarios.json")
+            if scenario_artifact not in names:
+                raise ValueError("Manifest declares scenarios missing from the bundle")
+            stored_scenarios = json.loads(archive.read(scenario_artifact))
+            if not isinstance(stored_scenarios, dict):
+                raise ValueError("Scenario artifact must be an object")
+            if scenario_spec.get("count") != len(stored_scenarios):
+                raise ValueError("Scenario count does not match the manifest")
+            if scenario_spec.get("fingerprint") != artifact_fingerprint(stored_scenarios):
+                raise ValueError("Scenario fingerprint mismatch")
+            for scenario_id, payload in stored_scenarios.items():
+                WorkspaceRepository.validate_scenario_id(scenario_id)
+                definition = ScenarioDefinition.model_validate(payload)
+                validate_scenario_contract(contract, definition)
+        elif scenario_artifact in names:
+            raise ValueError("Bundle scenarios are not declared in the manifest")
         data_spec = (manifest.get("spec") or {}).get("data")
         dataset_path: str | None = None
         dataset_records: list[dict[str, Any]] = []
@@ -308,4 +345,5 @@ def read_bundle(data: bytes) -> BundleContents:
             dataset_path,
             dataset_metadata,
             manifest_profile,
+            stored_scenarios,
         )

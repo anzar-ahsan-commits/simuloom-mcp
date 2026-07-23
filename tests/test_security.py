@@ -110,6 +110,10 @@ def test_rest_roles_and_audit_events(tmp_path: Path, monkeypatch) -> None:
             json={"reset_existing": True},
             headers={"X-API-Key": "operator-secret-123456"},
         )
+        global_scenario_reset_denied = client.post(
+            "/api/v1/scenarios/reset",
+            headers={"X-API-Key": "operator-secret-123456"},
+        )
         audit_response = client.get(
             "/api/v1/audit/events?limit=20",
             headers={"Authorization": "Bearer admin-secret-123456"},
@@ -126,6 +130,7 @@ def test_rest_roles_and_audit_events(tmp_path: Path, monkeypatch) -> None:
     assert viewer_create.status_code == 403
     assert operator_create.status_code == 201
     assert reset_denied.status_code == 403
+    assert global_scenario_reset_denied.status_code == 403
     assert audit_response.status_code == 200
     assert len(audit_response.json()["events"]) >= 5
     assert audit.verify()["valid"] is True
