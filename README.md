@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.9.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.10.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -25,6 +25,8 @@ the same deterministic application services are available through REST and MCP.
 - Execute live validation cases against WireMock and validate 2xx response schemas.
 - Replay every reachable scenario handler from a deterministic initial state.
 - Calculate operation, scenario, state, and transition coverage and capture unmatched traffic.
+- Generate opt-in valid boundary and documented negative cases from OpenAPI request schemas.
+- Publish boundary and negative constraint coverage in JSON and HTML evidence.
 - Publish machine-readable JSON and human-readable HTML evidence.
 - Export reproducible, Git-friendly `simulation.yaml` bundles.
 - Safely import portable bundles and regenerate mappings from approved source artifacts.
@@ -181,6 +183,30 @@ The current generic engine targets JSON request/response operations with local O
 references. External references, callbacks, webhooks, multipart bodies, and authentication
 token generation remain future extensions.
 
+## Contract edge-case validation
+
+SimuLoom derives deterministic edge requests from `required`, numeric bounds, string lengths,
+array sizes, enums, and JSON types. Valid boundary cases expect the documented success response.
+Negative cases are generated only when the operation documents a `4xx`, `4XX`, or `default`
+response; SimuLoom never invents an undocumented error contract.
+
+```json
+{
+  "max_dataset_cases": 3,
+  "include_boundary_cases": true,
+  "include_negative_cases": true,
+  "max_edge_cases_per_operation": 20
+}
+```
+
+Send that body to `POST /api/v1/simulations/{id}/validation/plan`, or add
+`"reset_runtime_state": true` and send it to `POST /api/v1/simulations/{id}/validate`.
+Omitting the new fields preserves the v0.9 validation plan. Compiled edge mappings use exact
+request matching and priority 2, between dataset/scenario mappings and contract fallbacks.
+
+See [the constraint-validation walkthrough](examples/constraint-validation/README.md) for
+copy-paste commands and an OpenAPI contract with documented `201` and `400` responses.
+
 ## Eligibility accelerator
 
 After generating data and compiling, each generated member can be called directly:
@@ -273,7 +299,7 @@ The evidence engine:
 4. Executes generic contract cases and specialized eligibility cases alongside scenarios.
 5. Compares actual and expected HTTP statuses and validates successful JSON responses against
    the approved OpenAPI schemas.
-6. Calculates operation, scenario, state, and transition coverage.
+6. Calculates operation, scenario, state, transition, boundary, and negative coverage.
 7. Reads the WireMock request journal, counts unmatched requests, and saves
    `reports/latest.json` and `reports/latest.html`.
 
@@ -375,7 +401,7 @@ append to a corrupted log.
 
 ## Next milestones
 
-1. Schema-derived negative, boundary, and pairwise validation cases.
+1. Pairwise and combinatorial constraint testing.
 2. Pluggable data generators and runtime adapters beyond WireMock.
 3. External identity-provider integration and short-lived credentials.
 

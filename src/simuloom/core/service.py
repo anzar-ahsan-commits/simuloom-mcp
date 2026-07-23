@@ -13,8 +13,10 @@ from simuloom.core.compiler import (
 )
 from simuloom.core.contracts import analyze_contract, is_eligibility_contract
 from simuloom.core.data import generate_members
+from simuloom.core.edge_cases import compile_edge_case_mappings, generate_edge_cases
 from simuloom.core.evidence import (
     EvidenceEngine,
+    build_edge_validation_cases,
     build_scenario_validation_cases,
     build_validation_cases,
 )
@@ -240,6 +242,9 @@ class SimulationService:
         self._require_simulation(simulation_id)
         contract = self.repository.read_json(simulation_id, "contract.json")
         contract_mappings = compile_wiremock_mappings(contract)
+        edge_mappings = compile_edge_case_mappings(
+            generate_edge_cases(contract, max_per_operation=50)
+        )
         dataset_mappings: list[dict[str, Any]] = []
         overridden_operations: set[str] = set()
         try:
@@ -273,6 +278,7 @@ class SimulationService:
             *dataset_mappings,
             *stateful_mappings,
             *configured_scenario_mappings,
+            *edge_mappings,
             *active_contract_mappings,
         ]
         fallback_count = sum(
@@ -298,6 +304,7 @@ class SimulationService:
                 "datasetMappingCount": len(dataset_mappings) - fallback_count,
                 "fallbackMappingCount": fallback_count,
                 "statefulMappingCount": len(stateful_mappings) + len(configured_scenario_mappings),
+                "edgeMappingCount": len(edge_mappings),
                 "configuredScenarioMappingCount": len(configured_scenario_mappings),
                 "activeProfile": profile["name"],
             },
@@ -310,6 +317,7 @@ class SimulationService:
             dataset_mapping_count=len(dataset_mappings) - fallback_count,
             fallback_mapping_count=fallback_count,
             stateful_mapping_count=len(stateful_mappings) + len(configured_scenario_mappings),
+            edge_mapping_count=len(edge_mappings),
             active_profile=profile["name"],
             status="compiled",
         )
@@ -370,21 +378,45 @@ class SimulationService:
         )
 
     async def validate(
-        self, simulation_id: str, max_dataset_cases: int, reset_runtime_state: bool
+        self,
+        simulation_id: str,
+        max_dataset_cases: int,
+        reset_runtime_state: bool,
+        include_boundary_cases: bool = False,
+        include_negative_cases: bool = False,
+        max_edge_cases_per_operation: int = 12,
     ) -> EvidenceReport:
         self._require_simulation(simulation_id)
+        if not 1 <= max_edge_cases_per_operation <= 50:
+            raise ValueError("max_edge_cases_per_operation must be between 1 and 50")
         metadata = self.repository.read_json(simulation_id, "simulation.json")
         if metadata.get("status") not in {"deployed", "validated"}:
             raise RuntimeError("Deploy this simulation before running live validation")
         engine = EvidenceEngine(self.repository, self.wiremock)
-        report = await engine.run(simulation_id, max_dataset_cases, reset_runtime_state)
+        report = await engine.run(
+            simulation_id,
+            max_dataset_cases,
+            reset_runtime_state,
+            include_boundary_cases,
+            include_negative_cases,
+            max_edge_cases_per_operation,
+        )
         self.repository.update_status(simulation_id, "validated")
         return report
 
-    def plan_validation(self, simulation_id: str, max_dataset_cases: int) -> ValidationPlan:
+    def plan_validation(
+        self,
+        simulation_id: str,
+        max_dataset_cases: int,
+        include_boundary_cases: bool = False,
+        include_negative_cases: bool = False,
+        max_edge_cases_per_operation: int = 12,
+    ) -> ValidationPlan:
         self._require_simulation(simulation_id)
         if not 1 <= max_dataset_cases <= 25:
             raise ValueError("max_dataset_cases must be between 1 and 25")
+        if not 1 <= max_edge_cases_per_operation <= 50:
+            raise ValueError("max_edge_cases_per_operation must be between 1 and 50")
         contract = self.repository.read_json(simulation_id, "contract.json")
         try:
             members = self.repository.read_json(simulation_id, "datasets/members.json")
@@ -400,6 +432,14 @@ class SimulationService:
         )
         cases.extend(
             build_scenario_validation_cases(contract, self.repository.read_scenarios(simulation_id))
+        )
+        cases.extend(
+            build_edge_validation_cases(
+                contract,
+                include_boundary=include_boundary_cases,
+                include_negative=include_negative_cases,
+                max_per_operation=max_edge_cases_per_operation,
+            )
         )
         planned = [
             ValidationPlanCase(
@@ -417,6 +457,10 @@ class SimulationService:
                 required_state=case.required_state,
                 new_state=case.new_state,
                 reset_before=case.reset_before,
+                edge_polarity=case.edge_polarity,
+                edge_constraint=case.edge_constraint,
+                edge_location=case.edge_location,
+                edge_field=case.edge_field,
             )
             for case in cases
         ]

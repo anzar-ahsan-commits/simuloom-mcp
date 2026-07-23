@@ -25,6 +25,7 @@ def test_create_generate_and_compile(tmp_path: Path) -> None:
     assert compiled.dataset_mapping_count == 5
     assert compiled.fallback_mapping_count == 1
     assert compiled.stateful_mapping_count == 3
+    assert compiled.edge_mapping_count == 0
     assert compiled.active_profile == "normal"
     members = service.repository.read_json(simulation.id, "datasets/members.json")
     assert members[0]["synthetic"] is True
@@ -55,6 +56,7 @@ def test_compile_without_dataset_uses_contract_example(tmp_path: Path) -> None:
     assert compiled.dataset_mapping_count == 0
     assert compiled.fallback_mapping_count == 0
     assert compiled.stateful_mapping_count == 3
+    assert compiled.edge_mapping_count == 0
 
 
 def test_slow_profile_adds_delay_to_every_mapping(tmp_path: Path) -> None:

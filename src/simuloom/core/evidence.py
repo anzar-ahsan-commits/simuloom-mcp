@@ -20,6 +20,7 @@ from simuloom.core.contracts import (
     iter_operations,
     operation_identifier,
 )
+from simuloom.core.edge_cases import generate_edge_cases
 from simuloom.core.repository import WorkspaceRepository
 from simuloom.core.scenarios import wiremock_scenario_name
 from simuloom.models import (
@@ -48,6 +49,10 @@ class ValidationCase:
     required_state: str | None = None
     new_state: str | None = None
     reset_before: bool = False
+    edge_polarity: str | None = None
+    edge_constraint: str | None = None
+    edge_location: str | None = None
+    edge_field: str | None = None
 
 
 def _operation(contract: dict[str, Any], operation_id: str) -> dict[str, Any] | None:
@@ -144,6 +149,42 @@ def build_scenario_validation_cases(
                     if len(planned) > 500:
                         raise ValueError("Scenario validation plan cannot exceed 500 cases")
     return planned
+
+
+def build_edge_validation_cases(
+    contract: dict[str, Any],
+    *,
+    include_boundary: bool,
+    include_negative: bool,
+    max_per_operation: int,
+) -> list[ValidationCase]:
+    return [
+        ValidationCase(
+            name=(
+                f"{case['operationId']} {case['edge']['polarity']} "
+                f"{case['edge']['location']}.{case['edge']['field']} "
+                f"{case['edge']['constraint']}"
+            ),
+            category=case["edge"]["polarity"],
+            operation_id=case["operationId"],
+            method=case["method"],
+            path=case["path"],
+            expected_status=case["expectedStatus"],
+            body=case.get("body"),
+            headers=case.get("headers") or None,
+            response_schema=_response_schema(contract, case["operationId"], case["expectedStatus"]),
+            edge_polarity=case["edge"]["polarity"],
+            edge_constraint=case["edge"]["constraint"],
+            edge_location=case["edge"]["location"],
+            edge_field=case["edge"]["field"],
+        )
+        for case in generate_edge_cases(
+            contract,
+            include_boundary=include_boundary,
+            include_negative=include_negative,
+            max_per_operation=max_per_operation,
+        )
+    ]
 
 
 def _scenario_validation_case(
@@ -408,6 +449,8 @@ Profile: <strong>{html.escape(report.active_profile)}</strong></p>
 <div class="card">Operations<br><strong>{report.operation_coverage.percentage}%</strong></div>
 <div class="card">States<br><strong>{report.state_coverage.percentage}%</strong></div>
 <div class="card">Transitions<br><strong>{report.transition_coverage.percentage}%</strong></div>
+<div class="card">Boundaries<br><strong>{report.boundary_coverage.percentage}%</strong></div>
+<div class="card">Negative<br><strong>{report.negative_coverage.percentage}%</strong></div>
 <div class="card">Unmatched<br><strong>{report.summary.unmatched_requests}</strong></div></div>
 <table><thead><tr><th>Case</th><th>Operation</th><th>Expected</th>
 <th>Actual</th><th>Result</th><th>Errors</th></tr></thead>
@@ -420,7 +463,13 @@ class EvidenceEngine:
         self.wiremock = wiremock
 
     async def run(
-        self, simulation_id: str, max_dataset_cases: int, reset_runtime_state: bool
+        self,
+        simulation_id: str,
+        max_dataset_cases: int,
+        reset_runtime_state: bool,
+        include_boundary_cases: bool = False,
+        include_negative_cases: bool = False,
+        max_edge_cases_per_operation: int = 12,
     ) -> EvidenceReport:
         contract = self.repository.read_json(simulation_id, "contract.json")
         simulation = self.repository.read_json(simulation_id, "simulation.json")
@@ -448,6 +497,14 @@ class EvidenceEngine:
             contract, members, profile, max_dataset_cases, contract_cases
         )
         cases.extend(build_scenario_validation_cases(contract, scenarios))
+        cases.extend(
+            build_edge_validation_cases(
+                contract,
+                include_boundary=include_boundary_cases,
+                include_negative=include_negative_cases,
+                max_per_operation=max_edge_cases_per_operation,
+            )
+        )
         results: list[ValidationCaseResult] = []
         for case in cases:
             errors: list[str] = []
@@ -513,6 +570,10 @@ class EvidenceEngine:
                     new_state=case.new_state,
                     actual_state_before=actual_state_before,
                     actual_state_after=actual_state_after,
+                    edge_polarity=case.edge_polarity,
+                    edge_constraint=case.edge_constraint,
+                    edge_location=case.edge_location,
+                    edge_field=case.edge_field,
                 )
             )
 
@@ -567,6 +628,14 @@ class EvidenceEngine:
         transition_coverage = _coverage(
             len(covered_transitions & all_transitions), len(all_transitions)
         )
+        boundary_results = [result for result in results if result.edge_polarity == "boundary"]
+        negative_results = [result for result in results if result.edge_polarity == "negative"]
+        boundary_coverage = _coverage(
+            sum(result.passed for result in boundary_results), len(boundary_results)
+        )
+        negative_coverage = _coverage(
+            sum(result.passed for result in negative_results), len(negative_results)
+        )
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         report_id = f"evidence-{timestamp}-{uuid.uuid4().hex[:6]}"
         report = EvidenceReport(
@@ -596,6 +665,8 @@ class EvidenceEngine:
             scenario_coverage=_coverage(len(passed_scenarios), len(scenario_names)),
             state_coverage=state_coverage,
             transition_coverage=transition_coverage,
+            boundary_coverage=boundary_coverage,
+            negative_coverage=negative_coverage,
             results=results,
             artifacts={"json": "reports/latest.json", "html": "reports/latest.html"},
         )
