@@ -24,10 +24,13 @@ issue, pull request, simulation bundle, or reproduction case.
 - The operator console stores an entered API key only in browser `sessionStorage`; closing the
   tab clears it. Serve the console only over TLS outside local development, do not use it on
   shared browser profiles, and retain the bundled strict Content Security Policy.
+- The visual designer creates SVG elements through the DOM and inserts scenario labels only as
+  text. Keep this text-only rendering boundary and server-side scenario validation when
+  extending graph or import behavior.
 
 ## Current security boundary
 
-SimuLoom v0.14 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.15 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.

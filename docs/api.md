@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.14.0 adds the bundled Operator Console and its additive dashboard APIs.
+SimuLoom v0.15.0 adds the Visual Scenario Designer and additive discovery/diagnostic APIs.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -19,6 +19,9 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | GET | `/api/v1/session` | viewer | Discover the current subject and role for UI controls |
 | GET | `/api/v1/simulations` | viewer | List dashboard-ready simulation summaries |
 | POST | `/api/v1/simulations/from-contract` | operator | Create from a YAML/JSON multipart upload |
+| GET | `/api/v1/simulations/{simulation_id}/operations` | viewer | List approved contract operations for designer choices |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios` | viewer | List stored scenario summaries |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/diagnostics` | viewer | Report graph reachability and transition observations |
 
 When `SIMULOOM_RUNTIME=native`, deployed virtual endpoints are served at
 `/runtime/{simulation_id}/{service_path}` with the methods declared by their mappings. This
@@ -37,6 +40,12 @@ to be mapping objects, and passed through the same OpenAPI analysis used by JSON
 Console responses use a strict same-origin Content Security Policy, deny framing and MIME
 sniffing, and send no referrer. Entered API keys use browser session storage rather than
 persistent local storage. There are no third-party browser dependencies.
+
+The Scenarios workspace renders its graph with bundled SVG APIs. User-controlled labels are
+assigned through `textContent`, not interpreted as markup. The editor operates on the existing
+portable `ScenarioDefinition` shape and submits to the existing validated PUT endpoint. Graph
+diagnostics identify unreachable states, states without outgoing transitions, and explicit
+self-transitions; informational diagnostics do not weaken server-side validation.
 
 ## Definition rules
 

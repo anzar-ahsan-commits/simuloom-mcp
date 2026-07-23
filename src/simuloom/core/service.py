@@ -30,6 +30,7 @@ from simuloom.core.manifest import (
 )
 from simuloom.core.pairwise import compile_pairwise_mappings, generate_pairwise_cases
 from simuloom.core.repository import WorkspaceRepository
+from simuloom.core.scenario_graph import scenario_graph_diagnostics
 from simuloom.core.scenarios import (
     compile_scenario_mappings,
     validate_scenario_contract,
@@ -44,13 +45,16 @@ from simuloom.models import (
     EvidenceReport,
     ExportResult,
     ImportResult,
+    OperationSummary,
     ProfileResult,
     ScenarioCompileResult,
     ScenarioDefinition,
     ScenarioDeployResult,
+    ScenarioGraphDiagnostic,
     ScenarioResetAllResult,
     ScenarioResetResult,
     ScenarioRuntimeState,
+    ScenarioSummary,
     ScenarioView,
     Simulation,
     SimulationSummary,
@@ -131,6 +135,36 @@ class SimulationService:
             scenario_id=scenario_id,
             definition=definition,
         )
+
+    def list_scenarios(self, simulation_id: str) -> list[ScenarioSummary]:
+        self._require_simulation(simulation_id)
+        summaries: list[ScenarioSummary] = []
+        for scenario_id, payload in sorted(self.repository.read_scenarios(simulation_id).items()):
+            definition = ScenarioDefinition.model_validate(payload)
+            diagnostics = scenario_graph_diagnostics(definition)
+            summaries.append(
+                ScenarioSummary(
+                    simulation_id=simulation_id,
+                    scenario_id=scenario_id,
+                    name=definition.name,
+                    description=definition.description,
+                    initial_state=definition.initial_state,
+                    reset_state=definition.reset_state,
+                    state_count=len(definition.states),
+                    handler_count=sum(len(state.handlers) for state in definition.states),
+                    warning_count=sum(item.severity == "warning" for item in diagnostics),
+                )
+            )
+        return summaries
+
+    def scenario_diagnostics(
+        self, simulation_id: str, scenario_id: str
+    ) -> list[ScenarioGraphDiagnostic]:
+        return scenario_graph_diagnostics(self.get_scenario(simulation_id, scenario_id).definition)
+
+    def contract_operations(self, simulation_id: str) -> list[OperationSummary]:
+        contract = self.repository.read_json(simulation_id, "contract.json")
+        return self.analyze(contract).operations
 
     def compile_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioCompileResult:
         view = self.get_scenario(simulation_id, scenario_id)

@@ -55,7 +55,7 @@ function showResult(title, payload) {
 function switchView(name) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${name}-view`));
   $$(".nav-item[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
-  $("#page-title").textContent = name === "overview" ? "Operational overview" : "Simulation workspace";
+  $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : "Simulation workspace";
 }
 
 async function loadDashboard() {
@@ -79,6 +79,7 @@ async function loadDashboard() {
     $("#simulation-count").textContent = simulations.length;
     $("#report-count").textContent = simulations.filter((item) => item.has_report).length;
     renderSimulations();
+    if (typeof refreshDesignerSimulations === "function") refreshDesignerSimulations();
   } catch (error) {
     notify(error.message, true);
     if (/valid Bearer|Authentication required/i.test(error.message)) $("#auth-dialog").showModal();
@@ -234,6 +235,7 @@ function initialize() {
     state.apiKey = ""; sessionStorage.removeItem("simuloom-api-key"); $("#api-key-input").value = "";
   });
   $$('[data-close]').forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
+  if (typeof initializeDesigner === "function") initializeDesigner();
   loadDashboard();
 }
 

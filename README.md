@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.14.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.15.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -38,6 +38,7 @@ the same deterministic application services are available through REST and MCP.
 - Discover the selected runtime and its capabilities through REST and MCP.
 - Persist native mappings, scenario state, and bounded journals across restarts with SQLite.
 - Operate the core simulation workflow from a bundled, role-aware web console.
+- Build portable stateful scenarios with a visual SVG graph and contract-aware inspector.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -101,6 +102,12 @@ Open `http://localhost:8000/ui` after starting SimuLoom. The console can upload 
 OpenAPI YAML/JSON contract, list and inspect workspaces, generate data, compile and deploy,
 activate profiles, preview and execute validation, inspect evidence, export bundles, and
 inspect or reset scenario state.
+
+The **Scenarios** workspace lists stored scenarios and approved contract operations. Operators
+can create states and handlers, select contract methods and paths, configure query/header/body
+matchers, define deterministic responses and transitions, and save, compile, deploy, inspect,
+or reset the result. The graph highlights initial, unreachable, terminal, and self-transition
+behavior. Scenario definitions can be imported or exported as portable JSON.
 
 When authentication is enabled, select **API key** and enter a viewer, operator, or admin key.
 The key is kept in browser `sessionStorage`, which is isolated to the current tab and cleared
@@ -174,6 +181,9 @@ GET  /api/v1/audit/events
 GET  /api/v1/audit/verify
 GET  /api/v1/runtime
 GET  /api/v1/session
+GET  /api/v1/simulations/{id}/operations
+GET  /api/v1/simulations/{id}/scenarios
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/diagnostics
 ```
 
 The simulation creation request shape is:

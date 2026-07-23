@@ -340,6 +340,26 @@ class ScenarioView(BaseModel):
     definition: ScenarioDefinition
 
 
+class ScenarioGraphDiagnostic(BaseModel):
+    severity: Literal["info", "warning"]
+    code: Literal["unreachable-state", "terminal-state", "self-transition"]
+    message: str
+    state: str
+    handler: str | None = None
+
+
+class ScenarioSummary(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    name: str
+    description: str
+    initial_state: str
+    reset_state: str
+    state_count: int
+    handler_count: int
+    warning_count: int = 0
+
+
 class ScenarioRuntimeState(BaseModel):
     simulation_id: str
     scenario_id: str

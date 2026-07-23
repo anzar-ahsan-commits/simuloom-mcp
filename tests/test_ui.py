@@ -12,6 +12,7 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
         root = client.get("/", follow_redirects=False)
         console = client.get("/ui")
         script = client.get("/ui/assets/app.js")
+        designer = client.get("/ui/assets/designer.js")
         styles = client.get("/ui/assets/styles.css")
     finally:
         client.close()
@@ -24,6 +25,10 @@ def test_console_and_assets_are_bundled_with_security_headers() -> None:
     assert console.headers["x-frame-options"] == "DENY"
     assert script.status_code == 200
     assert "sessionStorage" in script.text
+    assert designer.status_code == 200
+    assert "scenario-graph" in designer.text
+    assert "createElementNS" in designer.text
+    assert "innerHTML = definition" not in designer.text
     assert styles.status_code == 200
     assert "--accent" in styles.text
     assert "content-security-policy" in script.headers
