@@ -13,7 +13,11 @@ from simuloom.core.compiler import (
 )
 from simuloom.core.contracts import analyze_contract, is_eligibility_contract
 from simuloom.core.data import generate_members
-from simuloom.core.evidence import EvidenceEngine, build_validation_cases
+from simuloom.core.evidence import (
+    EvidenceEngine,
+    build_scenario_validation_cases,
+    build_validation_cases,
+)
 from simuloom.core.manifest import (
     build_manifest,
     dump_manifest,
@@ -351,6 +355,12 @@ class SimulationService:
             self.compile(simulation_id)
             mappings = self.repository.read_json(simulation_id, "mappings/mappings.json")
         deployed = await self.wiremock.deploy(mappings, reset_existing)
+        for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
+            definition = ScenarioDefinition.model_validate(payload)
+            await self.wiremock.set_scenario_state(
+                wiremock_scenario_name(simulation_id, scenario_id),
+                definition.initial_state,
+            )
         self.repository.update_status(simulation_id, "deployed")
         return DeployResult(
             simulation_id=simulation_id,
@@ -388,6 +398,9 @@ class SimulationService:
         cases = build_validation_cases(
             contract, members, profile, max_dataset_cases, contract_cases
         )
+        cases.extend(
+            build_scenario_validation_cases(contract, self.repository.read_scenarios(simulation_id))
+        )
         planned = [
             ValidationPlanCase(
                 name=case.name,
@@ -399,6 +412,11 @@ class SimulationService:
                 headers=case.headers,
                 body=case.body,
                 validates_response_schema=case.response_schema is not None,
+                scenario_id=case.scenario_id,
+                scenario_handler=case.scenario_handler,
+                required_state=case.required_state,
+                new_state=case.new_state,
+                reset_before=case.reset_before,
             )
             for case in cases
         ]

@@ -81,6 +81,31 @@ curl -fsS -X POST http://localhost:8080/orders \
   -d '{"itemId":"ITEM-SYN-001","quantity":1}'
 ```
 
+Generate and execute evidence for every reachable state and transition:
+
+```bash
+curl -fsS -X POST \
+  "http://localhost:8000/api/v1/simulations/$SIMULATION_ID/validation/plan" \
+  -H 'Content-Type: application/json' \
+  -d '{"max_dataset_cases":3}'
+
+curl -fsS -X POST \
+  "http://localhost:8000/api/v1/simulations/$SIMULATION_ID/validate" \
+  -H 'Content-Type: application/json' \
+  -d '{"max_dataset_cases":3,"reset_runtime_state":true}'
+
+curl -fsS \
+  "http://localhost:8000/api/v1/simulations/$SIMULATION_ID/reports/latest"
+
+curl -fsS \
+  "http://localhost:8000/api/v1/simulations/$SIMULATION_ID/reports/latest/html" \
+  -o /tmp/simuloom-order-evidence.html
+```
+
+The report must show 100% state and transition coverage for this example. Scenario cases are
+independent replays, so validation may leave WireMock in the final state of the last replay;
+use the scenario reset endpoint before another manual walkthrough.
+
 When authentication is enabled, add `Authorization: Bearer $SIMULOOM_KEY` or
 `X-API-Key: $SIMULOOM_KEY` to SimuLoom API requests. Direct WireMock example requests
 remain subject to the network controls around your WireMock deployment.

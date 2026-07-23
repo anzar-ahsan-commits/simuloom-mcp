@@ -1,7 +1,8 @@
-# SimuLoom scenario API
+# SimuLoom scenario and validation API
 
-SimuLoom v0.8.0 adds stateful scenarios beneath existing simulations. Existing v0.7.0
-operations and schemas remain available without changes.
+SimuLoom v0.9.0 adds exhaustive reachable-transition evidence to the stateful scenarios
+introduced in v0.8.0. Existing contract, dataset, profile, validation, authentication, and
+scenario operations remain available without breaking schema changes.
 
 ## REST endpoints
 
@@ -39,6 +40,29 @@ response framing headers are rejected.
 - `409`: a runtime operation requires a scenario to be deployed first.
 - `422`: invalid ID, graph, contract operation, status, or response schema.
 - `502`: WireMock inspection, deployment, or reset failed.
+
+## Scenario validation
+
+`POST /api/v1/simulations/{simulation_id}/validation/plan` includes scenario cases after the
+existing contract and dataset cases. For every handler in every reachable state, the planner
+creates an independent replay: reset to the initial state, follow a shortest known path to the
+required state, then invoke the target handler. A visited-state bound prevents cycles from
+expanding forever, and plans are capped at 500 cases.
+
+`POST /api/v1/simulations/{simulation_id}/validate` executes that plan and records these
+optional scenario fields on each applicable case:
+
+- `scenario_id`, `scenario_handler`
+- `required_state`, `new_state`
+- `reset_before`
+- `actual_state_before`, `actual_state_after`
+
+Evidence JSON and HTML include `state_coverage` and `transition_coverage` alongside existing
+operation and scenario coverage. Only successful cases count toward those metrics. Any
+reachable transition failure, declared-state coverage gap, or declared-transition coverage
+gap fails the report. Declared but unreachable states therefore produce explicit incomplete
+coverage. Full simulation deployment initializes every configured scenario to its declared
+initial state.
 
 ## MCP
 

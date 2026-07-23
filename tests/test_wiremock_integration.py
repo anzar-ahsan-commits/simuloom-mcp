@@ -48,12 +48,22 @@ async def test_order_lifecycle_against_real_wiremock(tmp_path: Path) -> None:
         )
         reset = await service.reset_scenario(simulation.id, scenario_id)
 
+        service.compile(simulation.id)
+        await service.deploy(simulation.id)
+        report = await service.validate(
+            simulation.id, max_dataset_cases=3, reset_runtime_state=True
+        )
+
         assert first.deployed_mappings == second.deployed_mappings == 6
         assert created.body["status"] == "PENDING"
         assert pending.body["status"] == "PENDING"
         assert paid.body["status"] == "PAID"
         assert shipped.body["status"] == "SHIPPED"
         assert reset.current_state == "NOT_CREATED"
-        assert await wiremock.scenario_state(scenario_name) == "NOT_CREATED"
+        assert await wiremock.scenario_state(scenario_name) == "SHIPPED"
+        assert report.status == "passed"
+        assert report.state_coverage.percentage == 100.0
+        assert report.transition_coverage.percentage == 100.0
+        assert report.transition_coverage.covered == 3
     finally:
         await wiremock.remove_scenario_mappings(scenario_name)

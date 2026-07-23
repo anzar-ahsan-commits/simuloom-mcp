@@ -116,6 +116,11 @@ class ValidationPlanCase(BaseModel):
     headers: dict[str, str] | None = None
     body: Any = None
     validates_response_schema: bool
+    scenario_id: str | None = None
+    scenario_handler: str | None = None
+    required_state: str | None = None
+    new_state: str | None = None
+    reset_before: bool = False
 
 
 class ValidationPlan(BaseModel):
@@ -137,6 +142,12 @@ class ValidationCaseResult(BaseModel):
     schema_valid: bool | None
     passed: bool
     errors: list[str] = Field(default_factory=list)
+    scenario_id: str | None = None
+    scenario_handler: str | None = None
+    required_state: str | None = None
+    new_state: str | None = None
+    actual_state_before: str | None = None
+    actual_state_after: str | None = None
 
 
 class CoverageMetric(BaseModel):
@@ -162,6 +173,12 @@ class EvidenceReport(BaseModel):
     summary: ValidationSummary
     operation_coverage: CoverageMetric
     scenario_coverage: CoverageMetric
+    state_coverage: CoverageMetric = Field(
+        default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
+    )
+    transition_coverage: CoverageMetric = Field(
+        default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
+    )
     results: list[ValidationCaseResult]
     artifacts: dict[str, str]
 

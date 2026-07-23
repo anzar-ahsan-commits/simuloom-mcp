@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 - Scenario Validation Evidence
+
+- Added bounded shortest-path validation replays for every reachable scenario handler.
+- Added runtime assertions for required and resulting WireMock scenario states.
+- Added declared state and transition coverage to JSON and HTML evidence reports.
+- Added full-deployment initialization of each configured scenario's initial state.
+- Added branch, failure, unreachable-state, regression, and live WireMock coverage.
+
 ## 0.8.0 - Stateful Scenario Orchestration
 
 - Added validated, deterministic multi-state scenario definitions.

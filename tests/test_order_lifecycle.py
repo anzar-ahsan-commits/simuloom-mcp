@@ -41,3 +41,11 @@ def test_complete_order_lifecycle_example_compiles(tmp_path: Path) -> None:
         "SHIPPED",
         None,
     ]
+
+    plan = service.plan_validation(simulation.id, max_dataset_cases=3)
+    scenario_cases = [case for case in plan.cases if case.scenario_id == "order-lifecycle"]
+    assert plan.case_count == 19
+    assert len(scenario_cases) == 15
+    assert scenario_cases[0].required_state == "NOT_CREATED"
+    assert scenario_cases[0].new_state == "PENDING"
+    assert scenario_cases[-1].required_state == "SHIPPED"

@@ -24,7 +24,7 @@ def create_app(
 ) -> FastAPI:
     application = FastAPI(
         title="SimuLoom",
-        version="0.8.0",
+        version="0.9.0",
         description="Contract-driven service virtualization, scenarios, and synthetic test data.",
         lifespan=lifespan,
     )
