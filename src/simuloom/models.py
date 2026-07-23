@@ -38,6 +38,19 @@ class Simulation(BaseModel):
     operation_count: int
 
 
+class SimulationSummary(Simulation):
+    active_profile: str
+    scenario_count: int = 0
+    has_dataset: bool = False
+    has_report: bool = False
+
+
+class SessionView(BaseModel):
+    subject: str
+    role: Literal["viewer", "operator", "admin"]
+    authentication_enabled: bool
+
+
 class DataGenerationRequest(BaseModel):
     records: int = Field(default=25, ge=1, le=10_000)
     seed: int = 1207

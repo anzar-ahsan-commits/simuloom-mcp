@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+import yaml
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 from simuloom.container import service
@@ -27,7 +28,9 @@ from simuloom.models import (
     ScenarioResetResult,
     ScenarioRuntimeState,
     ScenarioView,
+    SessionView,
     Simulation,
+    SimulationSummary,
     ValidationPlan,
     ValidationPlanRequest,
     ValidationRequest,
@@ -36,6 +39,7 @@ from simuloom.runtime.models import RuntimeCapabilities
 from simuloom.security import Principal, Role, require_role, role_allows
 
 router = APIRouter(prefix="/api/v1")
+MAX_CONTRACT_UPLOAD_SIZE = 2 * 1024 * 1024
 ViewerPrincipal = Annotated[Principal, Depends(require_role(Role.VIEWER))]
 OperatorPrincipal = Annotated[Principal, Depends(require_role(Role.OPERATOR))]
 AdminPrincipal = Annotated[Principal, Depends(require_role(Role.ADMIN))]
@@ -61,6 +65,15 @@ def runtime_capabilities(_principal: ViewerPrincipal) -> RuntimeCapabilities:
     return service.runtime.capabilities()
 
 
+@router.get("/session", response_model=SessionView)
+def current_session(principal: ViewerPrincipal) -> SessionView:
+    return SessionView(
+        subject=principal.subject,
+        role=principal.role.value,
+        authentication_enabled=principal.key_id is not None,
+    )
+
+
 @router.post("/contracts/analyze", response_model=ContractSummary)
 def analyze_contract(request: ContractRequest, _principal: ViewerPrincipal) -> ContractSummary:
     try:
@@ -75,6 +88,35 @@ def create_simulation(
 ) -> Simulation:
     try:
         return service.create(request.name, request.contract)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/simulations", response_model=list[SimulationSummary])
+def list_simulations(_principal: ViewerPrincipal) -> list[SimulationSummary]:
+    return service.list_simulations()
+
+
+@router.post("/simulations/from-contract", response_model=Simulation, status_code=201)
+async def create_simulation_from_contract(
+    name: Annotated[
+        str,
+        Form(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]+$"),
+    ],
+    contract: Annotated[UploadFile, File()],
+    _principal: OperatorPrincipal,
+) -> Simulation:
+    data = await contract.read(MAX_CONTRACT_UPLOAD_SIZE + 1)
+    if len(data) > MAX_CONTRACT_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="Contract upload exceeds 2 MiB")
+    try:
+        payload = yaml.safe_load(data)
+    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise HTTPException(status_code=422, detail="Contract must be valid YAML or JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Contract must be a YAML or JSON object")
+    try:
+        return service.create(name, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
