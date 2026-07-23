@@ -16,6 +16,11 @@ the same deterministic application services are available through REST and MCP.
 Start with the [five-minute public-beta walkthrough](docs/launch.md), continue with the
 [technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md).
 
+![SimuLoom Operator Console showing runtime health, simulations, and validation evidence](docs/images/simuloom-overview.png)
+
+_The bundled Operator Console keeps runtime health, simulations, scenarios, evidence, team
+workspaces, and the local AI Copilot in one deterministic control plane._
+
 ## What works in this milestone
 
 - Analyze an OpenAPI 3.x contract and calculate a stable fingerprint.
