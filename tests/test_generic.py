@@ -61,7 +61,8 @@ def test_generic_data_compiles_exact_and_fallback_mappings(tmp_path: Path) -> No
     assert dataset.record_count == 3
     assert compiled.contract_mapping_count == 2
     assert compiled.dataset_mapping_count == 3
-    assert compiled.mapping_count == 5
+    assert compiled.mapping_count == 10
+    assert compiled.edge_mapping_count == 5
     cases = service.repository.read_json(simulation.id, "datasets/cases.json")
     mappings = service.repository.read_json(simulation.id, "mappings/mappings.json")
     exact = next(

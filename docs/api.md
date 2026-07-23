@@ -1,8 +1,9 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.9.0 adds exhaustive reachable-transition evidence to the stateful scenarios
-introduced in v0.8.0. Existing contract, dataset, profile, validation, authentication, and
-scenario operations remain available without breaking schema changes.
+SimuLoom v0.10.0 adds opt-in OpenAPI constraint edge cases alongside the exhaustive
+reachable-transition evidence introduced in v0.9.0. Existing contract, dataset, profile,
+validation, authentication, and scenario operations remain available without breaking
+request changes.
 
 ## REST endpoints
 
@@ -64,10 +65,35 @@ gap fails the report. Declared but unreachable states therefore produce explicit
 coverage. Full simulation deployment initializes every configured scenario to its declared
 initial state.
 
+## Edge-case validation options
+
+Both validation request models accept these optional fields:
+
+| Field | Default | Range | Purpose |
+| --- | ---: | ---: | --- |
+| `include_boundary_cases` | `false` | boolean | Execute valid values exactly at declared constraints |
+| `include_negative_cases` | `false` | boolean | Execute one invalid mutation at a time when a 4xx/default response is documented |
+| `max_edge_cases_per_operation` | `12` | 1-50 | Bound generated edge cases per operation |
+
+Generated plan cases and evidence results expose `edge_polarity`, `edge_constraint`,
+`edge_location`, and `edge_field`. Reports expose `boundary_coverage` and
+`negative_coverage`. A failed edge case fails the overall report.
+
+Supported request constraints are `required`, `minimum`, `maximum`, `exclusiveMinimum`,
+`exclusiveMaximum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `enum`, and JSON type.
+Request bodies and query/header/path parameters are supported where the constraint can be
+represented as an exact HTTP request.
+
+Arbitrary regular expressions are deliberately not executed. External references,
+multipart bodies, and pairwise combinations remain unsupported.
+
 ## MCP
 
 Tools: `configure_scenario`, `inspect_scenario`, `compile_scenario`,
 `deploy_scenario`, `reset_scenario`, and `reset_all_scenarios`.
+
+The existing `plan_validation` and `run_validation` MCP tools accept the same edge-case
+options as REST.
 
 Resources:
 

@@ -68,6 +68,7 @@ class CompileResult(BaseModel):
     dataset_mapping_count: int
     fallback_mapping_count: int
     stateful_mapping_count: int
+    edge_mapping_count: int = 0
     active_profile: str
     status: str
 
@@ -100,10 +101,16 @@ class DeployResult(BaseModel):
 class ValidationRequest(BaseModel):
     max_dataset_cases: int = Field(default=3, ge=1, le=25)
     reset_runtime_state: bool = True
+    include_boundary_cases: bool = False
+    include_negative_cases: bool = False
+    max_edge_cases_per_operation: int = Field(default=12, ge=1, le=50)
 
 
 class ValidationPlanRequest(BaseModel):
     max_dataset_cases: int = Field(default=3, ge=1, le=25)
+    include_boundary_cases: bool = False
+    include_negative_cases: bool = False
+    max_edge_cases_per_operation: int = Field(default=12, ge=1, le=50)
 
 
 class ValidationPlanCase(BaseModel):
@@ -121,6 +128,10 @@ class ValidationPlanCase(BaseModel):
     required_state: str | None = None
     new_state: str | None = None
     reset_before: bool = False
+    edge_polarity: str | None = None
+    edge_constraint: str | None = None
+    edge_location: str | None = None
+    edge_field: str | None = None
 
 
 class ValidationPlan(BaseModel):
@@ -148,6 +159,10 @@ class ValidationCaseResult(BaseModel):
     new_state: str | None = None
     actual_state_before: str | None = None
     actual_state_after: str | None = None
+    edge_polarity: str | None = None
+    edge_constraint: str | None = None
+    edge_location: str | None = None
+    edge_field: str | None = None
 
 
 class CoverageMetric(BaseModel):
@@ -177,6 +192,12 @@ class EvidenceReport(BaseModel):
         default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
     )
     transition_coverage: CoverageMetric = Field(
+        default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
+    )
+    boundary_coverage: CoverageMetric = Field(
+        default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
+    )
+    negative_coverage: CoverageMetric = Field(
         default_factory=lambda: CoverageMetric(covered=0, total=0, percentage=100.0)
     )
     results: list[ValidationCaseResult]

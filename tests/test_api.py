@@ -62,3 +62,40 @@ def test_rest_bundle_export_and_import(tmp_path: Path, monkeypatch) -> None:
     assert imported.status_code == 201
     assert imported.json()["imported_dataset_records"] == 2
     assert imported.json()["simulation"]["id"] != simulation_id
+
+
+def test_rest_validation_plan_accepts_opt_in_edge_options(tmp_path: Path, monkeypatch) -> None:
+    contract = yaml.safe_load(Path("examples/constraint-validation/openapi.yaml").read_text())
+    test_service = SimulationService(
+        WorkspaceRepository(tmp_path), WireMockClient("http://wiremock.invalid")
+    )
+    monkeypatch.setattr("simuloom.api.routes.service", test_service)
+
+    client = TestClient(app)
+    try:
+        created = client.post(
+            "/api/v1/simulations",
+            json={"name": "API Edge Demo", "contract": contract},
+        )
+        simulation_id = created.json()["id"]
+        baseline = client.post(
+            f"/api/v1/simulations/{simulation_id}/validation/plan",
+            json={"max_dataset_cases": 1},
+        )
+        expanded = client.post(
+            f"/api/v1/simulations/{simulation_id}/validation/plan",
+            json={
+                "max_dataset_cases": 1,
+                "include_boundary_cases": True,
+                "include_negative_cases": True,
+                "max_edge_cases_per_operation": 20,
+            },
+        )
+    finally:
+        client.close()
+
+    assert baseline.status_code == 200
+    assert all(case["edge_polarity"] is None for case in baseline.json()["cases"])
+    assert expanded.status_code == 200
+    edge_cases = [case for case in expanded.json()["cases"] if case["edge_polarity"] is not None]
+    assert {case["edge_polarity"] for case in edge_cases} == {"boundary", "negative"}

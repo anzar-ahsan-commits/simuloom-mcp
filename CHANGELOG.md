@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 - Contract Edge-Case Validation
+
+- Added deterministic boundary and negative requests derived from approved OpenAPI schemas.
+- Added support for required, numeric, string-length, array-size, enum, and type constraints.
+- Added exact priority-two WireMock mappings backed only by documented success and 4xx responses.
+- Added opt-in REST and MCP validation controls with per-operation case limits.
+- Added boundary and negative coverage to JSON and HTML evidence.
+- Added a copy-paste constraint-validation example and real WireMock integration coverage.
+
 ## 0.9.0 - Scenario Validation Evidence
 
 - Added bounded shortest-path validation replays for every reachable scenario handler.

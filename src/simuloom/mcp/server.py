@@ -44,10 +44,22 @@ def generate_test_data(simulation_id: str, records: int = 25, seed: int = 1207) 
 
 
 @mcp.tool()
-def plan_validation(simulation_id: str, max_dataset_cases: int = 3) -> dict:
+def plan_validation(
+    simulation_id: str,
+    max_dataset_cases: int = 3,
+    include_boundary_cases: bool = False,
+    include_negative_cases: bool = False,
+    max_edge_cases_per_operation: int = 12,
+) -> dict:
     """Preview domain-independent validation cases without invoking WireMock."""
     require_current_role(Role.VIEWER)
-    return service.plan_validation(simulation_id, max_dataset_cases).model_dump()
+    return service.plan_validation(
+        simulation_id,
+        max_dataset_cases,
+        include_boundary_cases,
+        include_negative_cases,
+        max_edge_cases_per_operation,
+    ).model_dump()
 
 
 @mcp.tool()
@@ -83,10 +95,20 @@ async def run_validation(
     simulation_id: str,
     max_dataset_cases: int = 3,
     reset_runtime_state: bool = True,
+    include_boundary_cases: bool = False,
+    include_negative_cases: bool = False,
+    max_edge_cases_per_operation: int = 12,
 ) -> dict:
     """Execute validation cases and produce contract, coverage, and traffic evidence."""
     require_current_role(Role.OPERATOR)
-    report = await service.validate(simulation_id, max_dataset_cases, reset_runtime_state)
+    report = await service.validate(
+        simulation_id,
+        max_dataset_cases,
+        reset_runtime_state,
+        include_boundary_cases,
+        include_negative_cases,
+        max_edge_cases_per_operation,
+    )
     return report.model_dump(mode="json")
 
 

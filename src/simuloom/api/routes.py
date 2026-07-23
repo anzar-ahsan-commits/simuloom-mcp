@@ -141,7 +141,12 @@ async def validate_simulation(
 ) -> EvidenceReport:
     try:
         return await service.validate(
-            simulation_id, request.max_dataset_cases, request.reset_runtime_state
+            simulation_id,
+            request.max_dataset_cases,
+            request.reset_runtime_state,
+            request.include_boundary_cases,
+            request.include_negative_cases,
+            request.max_edge_cases_per_operation,
         )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -158,7 +163,13 @@ def plan_validation(
     _principal: ViewerPrincipal,
 ) -> ValidationPlan:
     try:
-        return service.plan_validation(simulation_id, request.max_dataset_cases)
+        return service.plan_validation(
+            simulation_id,
+            request.max_dataset_cases,
+            request.include_boundary_cases,
+            request.include_negative_cases,
+            request.max_edge_cases_per_operation,
+        )
     except (KeyError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
