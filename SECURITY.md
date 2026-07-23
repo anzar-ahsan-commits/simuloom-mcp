@@ -18,10 +18,13 @@ issue, pull request, simulation bundle, or reproduction case.
   publicly invokable. API-key middleware protects control-plane `/api/v1` and `/mcp` routes,
   not the virtualized service façade.
 - Back up audit events to append-only or write-once storage for independent retention.
+- Restrict filesystem access to the native SQLite database because it contains virtualized
+  request metadata, mappings, and current business-scenario state. Back it up consistently
+  with the simulation workspace when restart recovery is required.
 
 ## Current security boundary
 
-SimuLoom v0.12 uses statically configured API keys. It does not yet provide OIDC, automatic
+SimuLoom v0.13 uses statically configured API keys. It does not yet provide OIDC, automatic
 key rotation, distributed rate limiting, or an external policy engine. The local SHA-256
 audit chain detects accidental modification; HMAC signing is strongly recommended when an
 operator could otherwise rewrite both events and hashes.

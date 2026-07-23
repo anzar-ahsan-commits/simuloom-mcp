@@ -2,6 +2,7 @@ import pytest
 
 from simuloom.adapters.native import NativeRuntimeAdapter
 from simuloom.config import Settings
+from simuloom.runtime.sqlite import SQLiteRuntimeStore
 from simuloom.runtime.translation import from_wiremock_mappings, to_wiremock_mapping
 
 
@@ -73,6 +74,19 @@ def test_unknown_runtime_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings.from_env()
 
 
+def test_invalid_native_storage_configuration_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SIMULOOM_NATIVE_RUNTIME_STORE", "redis")
+    with pytest.raises(ValueError, match="sqlite or memory"):
+        Settings.from_env()
+
+    monkeypatch.setenv("SIMULOOM_NATIVE_RUNTIME_STORE", "sqlite")
+    monkeypatch.setenv("SIMULOOM_NATIVE_JOURNAL_LIMIT", "0")
+    with pytest.raises(ValueError, match="between 1 and 100000"):
+        Settings.from_env()
+
+
 @pytest.mark.asyncio
 async def test_native_runtime_matches_transitions_priorities_and_journal() -> None:
     runtime = NativeRuntimeAdapter()
@@ -113,3 +127,34 @@ async def test_native_runtime_scopes_deployments_and_resets() -> None:
     assert await runtime.serve_events("one") == []
     assert len(await runtime.serve_events("two")) == 1
     assert runtime.capabilities().runtime == "native"
+
+
+@pytest.mark.asyncio
+async def test_native_runtime_restores_active_scenario_after_restart(tmp_path) -> None:
+    path = tmp_path / "native.db"
+    first_store = SQLiteRuntimeStore(path)
+    first = NativeRuntimeAdapter(store=first_store)
+    mappings = from_wiremock_mappings(wiremock_mappings())
+    await first.deploy(mappings, False, simulation_id="one")
+    await first.execute(
+        "POST",
+        "/orders?source=test",
+        {"quantity": 1},
+        {"x-tenant": "synthetic"},
+        simulation_id="one",
+    )
+    first_store.close()
+
+    restored_store = SQLiteRuntimeStore(path)
+    restored = NativeRuntimeAdapter(store=restored_store)
+    try:
+        response = await restored.execute("GET", "/orders/ONE", simulation_id="one")
+
+        assert response.body == {"status": "PENDING"}
+        assert await restored.scenario_state("orders") == "PENDING"
+        assert len(await restored.serve_events("one")) == 2
+        capabilities = restored.capabilities()
+        assert capabilities.persistent is True
+        assert capabilities.storage == "sqlite"
+    finally:
+        restored_store.close()

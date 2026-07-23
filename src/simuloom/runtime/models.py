@@ -20,6 +20,9 @@ class RuntimeCapabilities(BaseModel):
     request_journal: bool = True
     delays: bool = True
     global_reset: bool = True
+    persistent: bool = False
+    storage: str = "external"
+    journal_limit: int | None = None
 
 
 class RuntimeValueMatcher(BaseModel):

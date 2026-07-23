@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.12.0 adds a vendor-neutral runtime boundary and an in-process native runtime.
+SimuLoom v0.13.0 adds durable SQLite storage to the vendor-neutral native runtime.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -133,12 +133,21 @@ Set `SIMULOOM_RUNTIME` to `wiremock` (default) or `native`. `WIREMOCK_URL` selec
 WireMock Admin/service URL. `SIMULOOM_NATIVE_RUNTIME_URL` is the externally advertised native
 façade base URL and defaults to `http://localhost:8000/runtime`.
 
+Native storage settings:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SIMULOOM_NATIVE_RUNTIME_STORE` | `sqlite` | Select durable `sqlite` or ephemeral `memory` |
+| `SIMULOOM_NATIVE_RUNTIME_DB` | `{workspace}/runtime/native.db` | SQLite database path |
+| `SIMULOOM_NATIVE_JOURNAL_LIMIT` | `1000` | Events retained per simulation, from 1 to 100000 |
+
 The canonical runtime model covers exact or regex paths, exact/absent query and header
 values, exact JSON bodies, deterministic JSON responses, delays, priorities, scenarios, and
 request-journal evidence. WireMock artifacts stored by older versions are translated at the
 adapter boundary. The native adapter isolates mappings, state, and journal events by
 simulation ID.
 
-Native runtime state is in memory and single-process. It is not shared between workers and is
-lost when SimuLoom restarts. Raw non-JSON response bodies and advanced WireMock extensions are
-not yet portable through the canonical model.
+SQLite native state survives restarts but remains single-node and is not a distributed
+coordination mechanism for multiple application workers. Memory mode is deliberately lost on
+restart. Raw non-JSON response bodies and advanced WireMock extensions are not yet portable
+through the canonical model.

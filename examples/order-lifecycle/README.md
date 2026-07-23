@@ -78,6 +78,23 @@ curl -fsS -X POST "$SERVICE_BASE/orders/ORD-SYN-001/shipment" \
 curl -fsS "$SERVICE_BASE/orders/ORD-SYN-001"
 ```
 
+When using the native SQLite runtime, verify that the final state survives a restart:
+
+```bash
+docker compose restart simuloom
+
+until curl -fsS http://localhost:8000/api/v1/health >/dev/null; do sleep 1; done
+
+curl -fsS "$SERVICE_BASE/orders/ORD-SYN-001"
+# Expected status: SHIPPED
+
+curl -fsS http://localhost:8000/api/v1/runtime
+# Expected: "runtime":"native", "persistent":true, "storage":"sqlite"
+```
+
+The simulation workspace, deployed mappings, scenario state, and retained request journal
+are restored from the Compose volume.
+
 Inspect and reset the scenario, then create the order again:
 
 ```bash
