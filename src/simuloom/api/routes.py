@@ -33,6 +33,13 @@ from simuloom.core.manifest import MAX_BUNDLE_SIZE
 from simuloom.core.scenario_approvals import ScenarioApprovalError
 from simuloom.core.scenario_revisions import ScenarioConflictError
 from simuloom.models import (
+    AIActionProposal,
+    AIChatMessage,
+    AIChatMessageCreate,
+    AIChatThread,
+    AIChatThreadCreate,
+    AISettingsUpdate,
+    AISettingsView,
     CompileResult,
     ContractRequest,
     ContractSummary,
@@ -125,6 +132,53 @@ def _parse_if_match(value: str | None) -> str | None:
     if not re.fullmatch(r"[0-9a-f]{64}", normalized):
         raise ValueError("If-Match must contain one SimuLoom scenario ETag")
     return normalized
+
+
+def _ai_thread_for_principal(thread_id: str, principal: Principal) -> dict:
+    try:
+        thread = platform_store.get_ai_thread(thread_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if thread["owner"] != principal.subject and principal.role != Role.ADMIN:
+        raise HTTPException(status_code=404, detail=f"AI conversation not found: {thread_id}")
+    return thread
+
+
+def _ai_simulation_context(simulation_id: str) -> dict:
+    metadata = service.get(simulation_id)
+    operations = [
+        item.model_dump(mode="json") for item in service.contract_operations(simulation_id)
+    ]
+    scenarios = []
+    for scenario_id, payload in service.repository.read_scenarios(simulation_id).items():
+        definition = ScenarioDefinition.model_validate(payload)
+        scenarios.append(
+            {
+                "id": scenario_id,
+                "name": definition.name,
+                "initial_state": definition.initial_state,
+                "states": [state.name for state in definition.states],
+                "transition_count": sum(
+                    sum(handler.new_state is not None for handler in state.handlers)
+                    + len(state.event_transitions)
+                    for state in definition.states
+                ),
+            }
+        )
+    return {
+        "simulation": {
+            "id": simulation_id,
+            "name": metadata["name"],
+            "status": metadata["status"],
+            "active_profile": metadata.get("activeProfile", "normal"),
+        },
+        "approved_operations": operations[:100],
+        "scenarios": scenarios[:50],
+        "safety": {
+            "context_is_read_only": True,
+            "actions_require_operator_approval": True,
+        },
+    }
 
 
 @router.get("/health")
@@ -526,6 +580,152 @@ async def draft_scenario_with_local_ai(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Local AI model request failed") from exc
+
+
+@router.post("/ai/chat/threads", response_model=AIChatThread, status_code=201)
+def create_ai_chat_thread(request: AIChatThreadCreate, principal: ViewerPrincipal) -> AIChatThread:
+    try:
+        service.get(request.simulation_id)
+        return AIChatThread.model_validate(
+            platform_store.create_ai_thread(request.simulation_id, request.title, principal.subject)
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/ai/settings", response_model=AISettingsView)
+def get_ai_settings(_principal: ViewerPrincipal) -> AISettingsView:
+    return AISettingsView(
+        enabled=ai_assistant.enabled,
+        model=ai_assistant.model,
+        base_url=ai_assistant.base_url,
+        persisted=platform_store.get_setting("ai.enabled") is not None,
+    )
+
+
+@router.put("/ai/settings", response_model=AISettingsView)
+def update_ai_settings(request: AISettingsUpdate, _principal: AdminPrincipal) -> AISettingsView:
+    platform_store.set_setting("ai.enabled", "true" if request.enabled else "false")
+    ai_assistant.enabled = request.enabled
+    platform_store.increment_metric("ai_settings_changes_total")
+    return get_ai_settings(_principal)
+
+
+@router.get("/ai/chat/threads", response_model=list[AIChatThread])
+def list_ai_chat_threads(principal: ViewerPrincipal) -> list[AIChatThread]:
+    return [
+        AIChatThread.model_validate(item)
+        for item in platform_store.list_ai_threads(
+            principal.subject, include_all=principal.role == Role.ADMIN
+        )
+    ]
+
+
+@router.get("/ai/chat/threads/{thread_id}", response_model=AIChatThread)
+def get_ai_chat_thread(thread_id: str, principal: ViewerPrincipal) -> AIChatThread:
+    return AIChatThread.model_validate(_ai_thread_for_principal(thread_id, principal))
+
+
+@router.post("/ai/chat/threads/{thread_id}/messages", response_model=AIChatMessage, status_code=201)
+async def send_ai_chat_message(
+    thread_id: str,
+    request: AIChatMessageCreate,
+    principal: ViewerPrincipal,
+) -> AIChatMessage:
+    if not ai_assistant.enabled:
+        raise HTTPException(status_code=503, detail="Local AI assistance is disabled")
+    thread = _ai_thread_for_principal(thread_id, principal)
+    try:
+        history = [AIChatMessage.model_validate(item) for item in thread["messages"]]
+        context = _ai_simulation_context(thread["simulation_id"])
+        platform_store.add_ai_message(thread_id, "user", request.content)
+        completion = await ai_assistant.chat(context, history, request.content)
+        stored = platform_store.add_ai_message(
+            thread_id,
+            "assistant",
+            completion.answer,
+            [
+                item.model_dump(mode="json", exclude={"id", "status", "result"})
+                for item in completion.actions
+            ],
+        )
+        platform_store.increment_metric("ai_chat_messages_total")
+        return AIChatMessage.model_validate(stored)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Local AI model request failed") from exc
+
+
+@router.post("/ai/chat/actions/{action_id}/approve", response_model=AIActionProposal)
+async def approve_ai_chat_action(action_id: str, principal: OperatorPrincipal) -> AIActionProposal:
+    try:
+        action = platform_store.get_ai_action(action_id)
+        thread = _ai_thread_for_principal(action["thread_id"], principal)
+        if action["status"] != "proposed":
+            raise HTTPException(status_code=409, detail="AI action is no longer awaiting approval")
+        claimed = platform_store.claim_ai_action(action_id)
+        if claimed is None:
+            raise HTTPException(status_code=409, detail="AI action is no longer awaiting approval")
+        action = claimed
+        arguments = action["arguments"]
+        simulation_id = thread["simulation_id"]
+        if action["kind"] == "generate_data":
+            records = int(arguments.get("records", 25))
+            seed = int(arguments.get("seed", 1207))
+            if not 1 <= records <= 10_000:
+                raise ValueError("AI-proposed record count must be between 1 and 10000")
+            result = service.generate_data(simulation_id, records, seed).model_dump(mode="json")
+        elif action["kind"] == "compile":
+            result = service.compile(simulation_id).model_dump(mode="json")
+        elif action["kind"] == "deploy":
+            result = (await service.deploy(simulation_id, reset_existing=False)).model_dump(
+                mode="json"
+            )
+        elif action["kind"] == "reset_scenario":
+            scenario_id = str(arguments.get("scenario_id", ""))
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", scenario_id):
+                raise ValueError("AI action requires a valid scenario_id")
+            service.get_scenario(simulation_id, scenario_id)
+            result = (await service.reset_scenario(simulation_id, scenario_id)).model_dump(
+                mode="json"
+            )
+        else:
+            raise ValueError("AI action kind is not allowlisted")
+        updated = platform_store.update_ai_action(action_id, "executed", result)
+        platform_store.increment_metric("ai_actions_executed_total")
+        return AIActionProposal.model_validate(updated)
+    except HTTPException:
+        raise
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        try:
+            platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+        except KeyError:
+            pass
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+        raise HTTPException(status_code=502, detail="Approved AI operation failed") from exc
+
+
+@router.post("/ai/chat/actions/{action_id}/reject", response_model=AIActionProposal)
+def reject_ai_chat_action(action_id: str, principal: OperatorPrincipal) -> AIActionProposal:
+    try:
+        action = platform_store.get_ai_action(action_id)
+        _ai_thread_for_principal(action["thread_id"], principal)
+        if action["status"] != "proposed":
+            raise HTTPException(status_code=409, detail="AI action is no longer awaiting approval")
+        return AIActionProposal.model_validate(
+            platform_store.update_ai_action(action_id, "rejected")
+        )
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/simulations/from-contract", response_model=Simulation, status_code=201)

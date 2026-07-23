@@ -62,7 +62,7 @@ function switchView(name) {
       && !window.confirm("Leave the designer and discard your unsaved changes?")) return;
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${name}-view`));
   $$(".nav-item[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
-  $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : name === "workspaces" ? "Team workspace hub" : "Simulation workspace";
+  $("#page-title").textContent = name === "overview" ? "Operational overview" : name === "scenarios" ? "Visual scenario designer" : name === "workspaces" ? "Team workspace hub" : name === "copilot" ? "AI operations copilot" : "Simulation workspace";
 }
 
 async function loadDashboard() {
@@ -89,6 +89,7 @@ async function loadDashboard() {
     renderSimulations();
     renderWorkspaceHub();
     if (typeof refreshDesignerSimulations === "function") refreshDesignerSimulations();
+    if (typeof refreshCopilot === "function") refreshCopilot();
   } catch (error) {
     notify(error.message, true);
     if (/valid Bearer|Authentication required/i.test(error.message)) $("#auth-dialog").showModal();
@@ -289,6 +290,7 @@ function initialize() {
   });
   $$('[data-close]').forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
   if (typeof initializeDesigner === "function") initializeDesigner();
+  if (typeof initializeCopilot === "function") initializeCopilot();
   loadDashboard();
 }
 

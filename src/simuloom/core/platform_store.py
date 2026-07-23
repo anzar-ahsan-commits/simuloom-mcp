@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-PLATFORM_SCHEMA_VERSION = 2
+PLATFORM_SCHEMA_VERSION = 4
 
 
 class PlatformStore:
@@ -86,6 +86,48 @@ class PlatformStore:
                     INSERT INTO schema_migrations (version) VALUES (2);
                     """
                 )
+            if current < 3:
+                self._connection.executescript(
+                    """
+                    CREATE TABLE platform_ai_threads (
+                        id TEXT PRIMARY KEY, simulation_id TEXT NOT NULL,
+                        title TEXT NOT NULL, owner TEXT NOT NULL,
+                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE platform_ai_messages (
+                        id TEXT PRIMARY KEY,
+                        thread_id TEXT NOT NULL REFERENCES platform_ai_threads(id)
+                            ON DELETE CASCADE,
+                        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                        content TEXT NOT NULL, actions TEXT NOT NULL DEFAULT '[]',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE platform_ai_actions (
+                        id TEXT PRIMARY KEY,
+                        message_id TEXT NOT NULL REFERENCES platform_ai_messages(id)
+                            ON DELETE CASCADE,
+                        thread_id TEXT NOT NULL REFERENCES platform_ai_threads(id)
+                            ON DELETE CASCADE,
+                        kind TEXT NOT NULL, arguments TEXT NOT NULL, summary TEXT NOT NULL,
+                        risk TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'proposed',
+                        result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                    );
+                    CREATE INDEX platform_ai_messages_thread_idx
+                        ON platform_ai_messages(thread_id, created_at);
+                    CREATE INDEX platform_ai_actions_thread_idx
+                        ON platform_ai_actions(thread_id, created_at);
+                    INSERT INTO schema_migrations (version) VALUES (3);
+                    """
+                )
+            if current < 4:
+                self._connection.executescript(
+                    """
+                    CREATE TABLE platform_settings (
+                        name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+                    );
+                    INSERT INTO schema_migrations (version) VALUES (4);
+                    """
+                )
 
     def _recover_interrupted_jobs(self) -> None:
         with self._lock, self._connection:
@@ -130,6 +172,23 @@ class PlatformStore:
                 "SELECT name, value FROM platform_metrics ORDER BY name"
             ).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    def get_setting(self, name: str) -> str | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT value FROM platform_settings WHERE name = ?", (name,)
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    def set_setting(self, name: str, value: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO platform_settings (name, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                (name, value, now),
+            )
 
     def create_workspace(self, name: str, creator: str) -> dict[str, Any]:
         workspace_id = f"ws-{uuid.uuid4().hex[:12]}"
@@ -444,3 +503,149 @@ class PlatformStore:
                 (workspace_id, limit),
             ).fetchall()
         return [self.get_job(str(row[0])) for row in rows]
+
+    def create_ai_thread(self, simulation_id: str, title: str, owner: str) -> dict[str, Any]:
+        thread_id = f"chat-{uuid.uuid4().hex[:16]}"
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO platform_ai_threads "
+                "(id, simulation_id, title, owner, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (thread_id, simulation_id, title, owner, now, now),
+            )
+        return self.get_ai_thread(thread_id)
+
+    def get_ai_thread(self, thread_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id, simulation_id, title, owner, created_at, updated_at "
+                "FROM platform_ai_threads WHERE id = ?",
+                (thread_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"AI conversation not found: {thread_id}")
+        item = dict(row)
+        item["messages"] = self.list_ai_messages(thread_id)
+        return item
+
+    def list_ai_threads(self, owner: str, include_all: bool = False) -> list[dict[str, Any]]:
+        with self._lock:
+            if include_all:
+                rows = self._connection.execute(
+                    "SELECT id FROM platform_ai_threads ORDER BY updated_at DESC LIMIT 100"
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    "SELECT id FROM platform_ai_threads WHERE owner = ? "
+                    "ORDER BY updated_at DESC LIMIT 100",
+                    (owner,),
+                ).fetchall()
+        return [self.get_ai_thread(str(row[0])) for row in rows]
+
+    def add_ai_message(
+        self,
+        thread_id: str,
+        role: str,
+        content: str,
+        actions: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        self.get_ai_thread(thread_id)
+        message_id = f"msg-{uuid.uuid4().hex[:16]}"
+        now = datetime.now(UTC).isoformat()
+        stored_actions: list[dict[str, Any]] = []
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO platform_ai_messages "
+                "(id, thread_id, role, content, actions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (message_id, thread_id, role, content, "[]", now),
+            )
+            for action in actions or []:
+                action_id = f"act-{uuid.uuid4().hex[:16]}"
+                stored = {**action, "id": action_id, "status": "proposed", "result": None}
+                stored_actions.append(stored)
+                self._connection.execute(
+                    "INSERT INTO platform_ai_actions "
+                    "(id, message_id, thread_id, kind, arguments, summary, risk, status, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)",
+                    (
+                        action_id,
+                        message_id,
+                        thread_id,
+                        action["kind"],
+                        json.dumps(action.get("arguments", {})),
+                        action["summary"],
+                        action["risk"],
+                        now,
+                        now,
+                    ),
+                )
+            self._connection.execute(
+                "UPDATE platform_ai_messages SET actions = ? WHERE id = ?",
+                (json.dumps(stored_actions), message_id),
+            )
+            self._connection.execute(
+                "UPDATE platform_ai_threads SET updated_at = ? WHERE id = ?", (now, thread_id)
+            )
+        return next(item for item in self.list_ai_messages(thread_id) if item["id"] == message_id)
+
+    def list_ai_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, thread_id, role, content, actions, created_at "
+                "FROM platform_ai_messages WHERE thread_id = ? ORDER BY created_at, id",
+                (thread_id,),
+            ).fetchall()
+        items = [dict(row) for row in rows]
+        for item in items:
+            item["actions"] = json.loads(item["actions"])
+        return items
+
+    def get_ai_action(self, action_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id, message_id, thread_id, kind, arguments, summary, risk, status, "
+                "result, created_at, updated_at FROM platform_ai_actions WHERE id = ?",
+                (action_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"AI action not found: {action_id}")
+        item = dict(row)
+        item["arguments"] = json.loads(item["arguments"])
+        item["result"] = json.loads(item["result"]) if item["result"] else None
+        return item
+
+    def update_ai_action(
+        self, action_id: str, status: str, result: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE platform_ai_actions SET status = ?, result = ?, updated_at = ? "
+                "WHERE id = ?",
+                (status, json.dumps(result) if result is not None else None, now, action_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"AI action not found: {action_id}")
+            action = self.get_ai_action(action_id)
+            message_actions = self._connection.execute(
+                "SELECT id FROM platform_ai_actions WHERE message_id = ? ORDER BY created_at, id",
+                (action["message_id"],),
+            ).fetchall()
+            rendered = [self.get_ai_action(str(row[0])) for row in message_actions]
+            self._connection.execute(
+                "UPDATE platform_ai_messages SET actions = ? WHERE id = ?",
+                (json.dumps(rendered), action["message_id"]),
+            )
+        return self.get_ai_action(action_id)
+
+    def claim_ai_action(self, action_id: str) -> dict[str, Any] | None:
+        """Atomically claim a proposed action so it can execute at most once."""
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE platform_ai_actions SET status = 'approved', updated_at = ? "
+                "WHERE id = ? AND status = 'proposed'",
+                (now, action_id),
+            )
+        return self.get_ai_action(action_id) if cursor.rowcount == 1 else None

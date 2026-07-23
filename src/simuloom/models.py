@@ -62,8 +62,8 @@ class WorkspaceReadiness(BaseModel):
     workspace_writable: bool
     simulation_count: int = Field(ge=0)
     platform_store_ready: bool = True
-    platform_schema_version: int = Field(default=2, ge=1)
-    supported_platform_schema_version: int = Field(default=2, ge=1)
+    platform_schema_version: int = Field(default=4, ge=1)
+    supported_platform_schema_version: int = Field(default=4, ge=1)
 
 
 class TeamWorkspaceCreate(BaseModel):
@@ -173,6 +173,62 @@ class ScenarioAIDraft(BaseModel):
     definition: ScenarioDefinition
     persisted: Literal[False] = False
     requires_human_review: Literal[True] = True
+
+
+class AIChatThreadCreate(BaseModel):
+    simulation_id: str
+    title: str = Field(default="New conversation", min_length=3, max_length=120)
+
+
+class AIChatMessageCreate(BaseModel):
+    content: str = Field(min_length=2, max_length=4_000)
+
+
+class AIActionProposal(BaseModel):
+    id: str | None = None
+    kind: Literal["generate_data", "compile", "deploy", "reset_scenario"]
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    summary: str = Field(min_length=3, max_length=300)
+    risk: Literal["low", "medium", "high"]
+    status: Literal["proposed", "approved", "executed", "failed", "rejected"] = "proposed"
+    result: dict[str, Any] | None = None
+
+
+class AIChatCompletion(BaseModel):
+    answer: str = Field(min_length=1, max_length=8_000)
+    actions: list[AIActionProposal] = Field(default_factory=list, max_length=4)
+    suggested_prompts: list[str] = Field(default_factory=list, max_length=4)
+
+
+class AIChatMessage(BaseModel):
+    id: str
+    thread_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    actions: list[AIActionProposal] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AIChatThread(BaseModel):
+    id: str
+    simulation_id: str
+    title: str
+    owner: str
+    created_at: datetime
+    updated_at: datetime
+    messages: list[AIChatMessage] = Field(default_factory=list)
+
+
+class AISettingsUpdate(BaseModel):
+    enabled: bool
+
+
+class AISettingsView(BaseModel):
+    enabled: bool
+    provider: Literal["ollama"] = "ollama"
+    model: str
+    base_url: str
+    persisted: bool
 
 
 class DataGenerationRequest(BaseModel):

@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.40.0 includes governed releases, promotion, templates, deterministic orchestration,
+SimuLoom v0.41.0 includes governed releases, promotion, templates, deterministic orchestration,
 observability, and bounded workspace backup/restore.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
@@ -37,6 +37,13 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | GET/PUT/DELETE | `/api/v1/workspaces/{workspace_id}/members/...` | member/admin | Inspect or manage memberships |
 | GET | `/api/v1/simulations/{simulation_id}/gitops` | viewer | Export an integrity-protected GitOps snapshot |
 | POST | `/api/v1/simulations/{simulation_id}/ai/scenarios/draft` | operator | Generate a validated, unsaved Ollama draft |
+| POST/GET | `/api/v1/ai/chat/threads` | viewer | Start or list persistent grounded conversations |
+| GET | `/api/v1/ai/settings` | viewer | Inspect local-AI enablement and configured provider |
+| PUT | `/api/v1/ai/settings` | admin | Persistently enable or disable local AI |
+| GET | `/api/v1/ai/chat/threads/{thread_id}` | viewer | Inspect owned history and proposals |
+| POST | `/api/v1/ai/chat/threads/{thread_id}/messages` | viewer | Send a grounded copilot message |
+| POST | `/api/v1/ai/chat/actions/{action_id}/approve` | operator | Approve and execute an allowlisted proposal |
+| POST | `/api/v1/ai/chat/actions/{action_id}/reject` | operator | Reject an inert proposal |
 | POST/GET | `/api/v1/jobs`, `/api/v1/jobs/{job_id}` | operator/viewer | Submit or inspect durable background jobs |
 | GET | `/api/v1/workspaces/{workspace_id}/jobs` | member | List workspace jobs |
 | POST/GET/DELETE | `/api/v1/workspaces/{workspace_id}/integrations/...` | member/admin | Manage and dispatch signed integrations |

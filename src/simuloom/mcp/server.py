@@ -6,9 +6,15 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from simuloom.container import integration_dispatcher, platform_store, secret_vault, service
+from simuloom.container import (
+    ai_assistant,
+    integration_dispatcher,
+    platform_store,
+    secret_vault,
+    service,
+)
 from simuloom.core.gitops import build_snapshot
-from simuloom.models import ScenarioDefinition
+from simuloom.models import AIChatMessage, ScenarioDefinition
 from simuloom.security import Role, require_current_role
 
 mcp = FastMCP(
@@ -23,6 +29,30 @@ mcp = FastMCP(
 )
 
 
+def _owned_ai_thread(thread_id: str, subject: str, is_admin: bool = False) -> dict:
+    thread = platform_store.get_ai_thread(thread_id)
+    if thread["owner"] != subject and not is_admin:
+        raise KeyError(f"AI conversation not found: {thread_id}")
+    return thread
+
+
+def _mcp_ai_context(simulation_id: str) -> dict:
+    simulation = service.get(simulation_id)
+    return {
+        "simulation": {
+            "id": simulation_id,
+            "name": simulation["name"],
+            "status": simulation["status"],
+            "active_profile": simulation.get("activeProfile", "normal"),
+        },
+        "approved_operations": [
+            item.model_dump(mode="json") for item in service.contract_operations(simulation_id)
+        ][:100],
+        "scenario_ids": sorted(service.repository.read_scenarios(simulation_id))[:50],
+        "safety": {"actions_require_operator_approval": True},
+    }
+
+
 @mcp.tool()
 def analyze_contract(contract: dict) -> dict:
     """Validate and summarize an approved OpenAPI 3.x contract without modifying it."""
@@ -35,6 +65,83 @@ def create_simulation(name: str, contract: dict) -> dict:
     """Create a versioned simulation workspace from an approved OpenAPI contract."""
     require_current_role(Role.OPERATOR)
     return service.create(name, contract).model_dump()
+
+
+@mcp.tool()
+def create_ai_conversation(simulation_id: str, title: str = "New conversation") -> dict:
+    """Start a persistent, simulation-grounded local-AI conversation."""
+    principal = require_current_role(Role.VIEWER)
+    service.get(simulation_id)
+    return platform_store.create_ai_thread(simulation_id, title, principal.subject)
+
+
+@mcp.tool()
+async def chat_with_simulation(thread_id: str, message: str) -> dict:
+    """Ask the local copilot about a simulation; returned actions remain unexecuted proposals."""
+    principal = require_current_role(Role.VIEWER)
+    if not ai_assistant.enabled:
+        raise RuntimeError("Local AI assistance is disabled")
+    thread = _owned_ai_thread(thread_id, principal.subject, is_admin=principal.role == Role.ADMIN)
+    if not 2 <= len(message) <= 4_000:
+        raise ValueError("message must contain between 2 and 4000 characters")
+    history = [AIChatMessage.model_validate(item) for item in thread["messages"]]
+    platform_store.add_ai_message(thread_id, "user", message)
+    completion = await ai_assistant.chat(_mcp_ai_context(thread["simulation_id"]), history, message)
+    stored = platform_store.add_ai_message(
+        thread_id,
+        "assistant",
+        completion.answer,
+        [
+            item.model_dump(mode="json", exclude={"id", "status", "result"})
+            for item in completion.actions
+        ],
+    )
+    platform_store.increment_metric("ai_chat_messages_total")
+    return stored
+
+
+@mcp.tool()
+async def approve_ai_action(action_id: str) -> dict:
+    """Explicitly approve and execute one allowlisted AI proposal as an operator."""
+    principal = require_current_role(Role.OPERATOR)
+    action = platform_store.get_ai_action(action_id)
+    thread = _owned_ai_thread(
+        action["thread_id"], principal.subject, is_admin=principal.role == Role.ADMIN
+    )
+    if action["status"] != "proposed":
+        raise ValueError("AI action is no longer awaiting approval")
+    claimed = platform_store.claim_ai_action(action_id)
+    if claimed is None:
+        raise ValueError("AI action is no longer awaiting approval")
+    action = claimed
+    arguments = action["arguments"]
+    simulation_id = thread["simulation_id"]
+    try:
+        if action["kind"] == "generate_data":
+            records = int(arguments.get("records", 25))
+            seed = int(arguments.get("seed", 1207))
+            if not 1 <= records <= 10_000:
+                raise ValueError("AI-proposed record count must be between 1 and 10000")
+            result = service.generate_data(simulation_id, records, seed).model_dump(mode="json")
+        elif action["kind"] == "compile":
+            result = service.compile(simulation_id).model_dump(mode="json")
+        elif action["kind"] == "deploy":
+            result = (await service.deploy(simulation_id, reset_existing=False)).model_dump(
+                mode="json"
+            )
+        elif action["kind"] == "reset_scenario":
+            scenario_id = str(arguments.get("scenario_id", ""))
+            service.get_scenario(simulation_id, scenario_id)
+            result = (await service.reset_scenario(simulation_id, scenario_id)).model_dump(
+                mode="json"
+            )
+        else:
+            raise ValueError("AI action kind is not allowlisted")
+    except Exception as exc:
+        platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+        raise
+    platform_store.increment_metric("ai_actions_executed_total")
+    return platform_store.update_ai_action(action_id, "executed", result)
 
 
 @mcp.tool()
@@ -560,6 +667,14 @@ def current_metrics() -> str:
     """Return bounded low-cardinality SimuLoom operation counters."""
     require_current_role(Role.VIEWER)
     return json.dumps(service.metrics_snapshot(), indent=2)
+
+
+@mcp.resource("ai-chat://{thread_id}/conversation", mime_type="application/json")
+def ai_chat_conversation_resource(thread_id: str) -> str:
+    """Read one persistent AI conversation owned by the authenticated principal."""
+    principal = require_current_role(Role.VIEWER)
+    thread = _owned_ai_thread(thread_id, principal.subject, is_admin=principal.role == Role.ADMIN)
+    return json.dumps(thread, indent=2)
 
 
 @mcp.resource("gitops://simulation/{simulation_id}", mime_type="application/json")

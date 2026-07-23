@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.40.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.41.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -601,6 +601,54 @@ allowlisted summary of contract operations. The model must return the `ScenarioD
 schema at temperature 0. The result is validated against the original OpenAPI contract and loaded
 as an unsaved draft. It cannot read secrets, call MCP tools, write files, save revisions, approve
 reviews, deploy mappings, or contact service endpoints.
+
+## AI operations copilot
+
+The v0.41 console adds persistent, simulation-grounded chat. The copilot can explain an OpenAPI
+contract, summarize configured scenarios, help diagnose workflow gaps, and propose a small set of
+operations. It cannot execute a proposal by itself. An authenticated operator must approve each
+operation, and viewers can chat without receiving execution authority.
+
+Start SimuLoom with the Ollama settings above, open `http://localhost:8000/ui`, then select
+**AI Copilot**. Choose a simulation, start a conversation, and try:
+
+An administrator can use **Enable AI** in the Copilot header to turn assistance on without
+restarting SimuLoom. The choice persists across application restarts. The Ollama URL and model
+remain deployment-controlled, and Ollama must already be running with the configured model.
+
+```text
+Explain the order lifecycle in plain language and identify any missing failure paths.
+What should I validate before deploying this simulation?
+Generate a proposal to compile this simulation, but do not execute it.
+```
+
+The equivalent REST flow is copy-pasteable with `jq`:
+
+```bash
+SIMULATION_ID="replace-with-a-simulation-id"
+THREAD_ID=$(curl -fsS -X POST http://localhost:8000/api/v1/ai/chat/threads \
+  -H 'Content-Type: application/json' \
+  -d "{\"simulation_id\":\"${SIMULATION_ID}\",\"title\":\"Release readiness\"}" | jq -r .id)
+
+curl -fsS -X POST "http://localhost:8000/api/v1/ai/chat/threads/${THREAD_ID}/messages" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Explain this simulation and recommend the safest next step."}' | jq
+
+curl -fsS "http://localhost:8000/api/v1/ai/chat/threads/${THREAD_ID}" | jq
+```
+
+When authentication is enabled, add `-H "Authorization: Bearer ${SIMULOOM_API_KEY}"`. Approve an
+individual proposal only after inspecting it:
+
+```bash
+ACTION_ID="replace-with-a-proposed-action-id"
+curl -fsS -X POST \
+  "http://localhost:8000/api/v1/ai/chat/actions/${ACTION_ID}/approve" | jq
+```
+
+Context is bounded to simulation metadata, documented operations, and scenario structure. Recent
+history is capped, model output must match a strict schema, and action kinds and arguments are
+validated again at execution. Deployment proposals never request a global runtime reset.
 
 ## Guardrails
 
