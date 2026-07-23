@@ -1,12 +1,21 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
 
 jobs:
   publish:
-    if: github.repository == 'anzar-ahsan-commits/simuloom-mcp'
+    if: >-
+      github.repository == 'anzar-ahsan-commits/simuloom-mcp' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -15,9 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.event.workflow_run.head_branch }}
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+      - name: Verify requested tag matches package version
+        run: |
+          version=$(uv run python -c "import simuloom; print(simuloom.__version__)")
+          test "v${version}" = "${{ inputs.tag || github.event.workflow_run.head_branch }}"
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1

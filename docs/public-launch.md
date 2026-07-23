@@ -10,7 +10,8 @@ from a contributor branch.
 - Weekly Python, Docker, and GitHub Actions dependency updates.
 - Tag-driven Python distribution and GHCR image builds.
 - Provenance attestations for distributions and container images.
-- OIDC-based PyPI publication with no long-lived package token.
+- OIDC-based PyPI publication after a successful release workflow, with a manual recovery trigger
+  and no long-lived package token.
 - Structured contribution, support, issue, pull request, security, and governance guidance.
 
 ## Owner setup before the first public release
