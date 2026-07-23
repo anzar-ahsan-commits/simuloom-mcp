@@ -30,4 +30,7 @@ def test_readiness_reports_workspace_and_runtime(tmp_path: Path, monkeypatch) ->
         "supported_workspace_schema_version": 1,
         "workspace_writable": True,
         "simulation_count": 0,
+        "platform_store_ready": True,
+        "platform_schema_version": 2,
+        "supported_platform_schema_version": 2,
     }

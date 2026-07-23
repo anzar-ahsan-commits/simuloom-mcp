@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 from test_scenarios import ScenarioWireMock, contract, definition_payload
 
+from simuloom.core.metrics import MetricsRegistry
+from simuloom.core.platform_store import PlatformStore
 from simuloom.core.repository import WorkspaceRepository
 from simuloom.core.service import SimulationService
 from simuloom.models import ScenarioDefinition
@@ -30,3 +32,18 @@ async def test_low_cardinality_metrics_cover_scenario_operations(tmp_path: Path)
     }
     assert "simuloom_scenario_deployments_total 1" in prometheus
     assert "simulation_id" not in prometheus
+
+
+def test_metrics_persist_across_registry_instances(tmp_path: Path) -> None:
+    path = tmp_path / "platform.db"
+    first_store = PlatformStore(path)
+    first = MetricsRegistry(first_store)
+    first.increment("scenario_deployments_total")
+    first.increment("scenario_deployments_total", 2)
+    first_store.close()
+
+    second_store = PlatformStore(path)
+    second = MetricsRegistry(second_store)
+
+    assert second.persistent is True
+    assert second.snapshot() == {"scenario_deployments_total": 3}

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simuloom-mcp"
-version = "0.28.0"
+version = "0.40.0"
 description = "Contract-driven service virtualization and synthetic test-data control plane exposed through REST and MCP."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,6 +19,7 @@ dependencies = [
   "PyYAML>=6.0,<7",
   "Faker==40.31.0",
   "jsonschema>=4.26,<5",
+  "cryptography>=45,<50",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,7 @@ dev = [
 
 [project.scripts]
 simuloom = "simuloom.main:run"
+simuloom-gitops = "simuloom.gitops_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simuloom"]

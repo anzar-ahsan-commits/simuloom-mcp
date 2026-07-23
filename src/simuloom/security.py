@@ -142,7 +142,7 @@ class AuthAuditMiddleware:
         if not (path.startswith("/api/v1") or path.startswith("/mcp")):
             await self.app(scope, receive, send)
             return
-        if path == "/api/v1/health":
+        if path in {"/api/v1/health", "/api/v1/readyz"}:
             await self.app(scope, receive, send)
             return
         headers = {

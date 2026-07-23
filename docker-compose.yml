@@ -14,10 +14,24 @@ services:
       SIMULOOM_AUTH_ENABLED: ${SIMULOOM_AUTH_ENABLED:-false}
       SIMULOOM_API_KEYS: '${SIMULOOM_API_KEYS:-{}}'
       SIMULOOM_AUDIT_SIGNING_KEY: ${SIMULOOM_AUDIT_SIGNING_KEY:-}
+      SIMULOOM_PLATFORM_DB: ${SIMULOOM_PLATFORM_DB:-/app/workspace/runtime/platform.db}
+      SIMULOOM_INTEGRATION_ALLOWED_HOSTS: ${SIMULOOM_INTEGRATION_ALLOWED_HOSTS:-}
+      SIMULOOM_INTEGRATION_SIGNING_KEY: ${SIMULOOM_INTEGRATION_SIGNING_KEY:-}
+      SIMULOOM_INTEGRATION_ALLOW_HTTP: ${SIMULOOM_INTEGRATION_ALLOW_HTTP:-false}
+      SIMULOOM_SECRETS_MASTER_KEY: ${SIMULOOM_SECRETS_MASTER_KEY:-}
+      SIMULOOM_AI_ENABLED: ${SIMULOOM_AI_ENABLED:-false}
+      SIMULOOM_AI_BASE_URL: ${SIMULOOM_AI_BASE_URL:-http://host.docker.internal:11434}
+      SIMULOOM_AI_MODEL: ${SIMULOOM_AI_MODEL:-qwen3:8b}
     volumes:
       - simuloom-workspace:/app/workspace
     depends_on:
       - wiremock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   wiremock:
     image: wiremock/wiremock:3.13.2

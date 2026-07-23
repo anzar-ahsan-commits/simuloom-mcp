@@ -1,14 +1,17 @@
 import re
 from typing import Annotated
 
+import httpx
 import yaml
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
     Header,
     HTTPException,
+    Path,
     Query,
     Request,
     Response,
@@ -16,7 +19,16 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
-from simuloom.container import service
+from simuloom.container import (
+    ai_assistant,
+    audit_log,
+    integration_dispatcher,
+    job_runner,
+    platform_store,
+    secret_vault,
+    service,
+)
+from simuloom.core.gitops import build_snapshot
 from simuloom.core.manifest import MAX_BUNDLE_SIZE
 from simuloom.core.scenario_approvals import ScenarioApprovalError
 from simuloom.core.scenario_revisions import ScenarioConflictError
@@ -33,9 +45,17 @@ from simuloom.models import (
     EvidenceReport,
     ExportResult,
     ImportResult,
+    IntegrationCreate,
+    IntegrationDelivery,
+    IntegrationDispatch,
+    IntegrationView,
+    JobCreate,
+    JobView,
     OperationSummary,
     ProfileConfigRequest,
     ProfileResult,
+    ScenarioAIDraft,
+    ScenarioAIDraftRequest,
     ScenarioClockAdvance,
     ScenarioClockView,
     ScenarioCompileResult,
@@ -63,12 +83,18 @@ from simuloom.models import (
     ScenarioTemplateCreate,
     ScenarioTemplateInstantiate,
     ScenarioView,
+    SecretMetadata,
+    SecretPut,
     SessionView,
     Simulation,
     SimulationSummary,
+    TeamWorkspace,
+    TeamWorkspaceCreate,
     ValidationPlan,
     ValidationPlanRequest,
     ValidationRequest,
+    WorkspaceMember,
+    WorkspaceMemberUpdate,
     WorkspaceReadiness,
     WorkspaceRestoreResult,
 )
@@ -123,7 +149,8 @@ async def readiness(_principal: ViewerPrincipal) -> WorkspaceReadiness:
     except Exception:
         runtime_ready = False
     workspace = service.repository.diagnostics()
-    ready = runtime_ready and workspace["writable"]
+    platform = platform_store.diagnostics()
+    ready = runtime_ready and workspace["writable"] and platform["ready"]
     return WorkspaceReadiness(
         status="ready" if ready else "degraded",
         runtime=service.runtime.capabilities().runtime,
@@ -133,7 +160,24 @@ async def readiness(_principal: ViewerPrincipal) -> WorkspaceReadiness:
         supported_workspace_schema_version=workspace["supported_schema_version"],
         workspace_writable=workspace["writable"],
         simulation_count=workspace["simulation_count"],
+        platform_store_ready=platform["ready"],
+        platform_schema_version=platform["schema_version"],
+        supported_platform_schema_version=platform["supported_schema_version"],
     )
+
+
+@router.get("/readyz")
+async def deployment_readiness(response: Response) -> dict[str, str]:
+    try:
+        runtime_ready = await service.runtime.health()
+        platform_ready = platform_store.diagnostics()["ready"]
+        workspace_ready = service.repository.diagnostics()["writable"]
+    except Exception:
+        runtime_ready = platform_ready = workspace_ready = False
+    if not (runtime_ready and platform_ready and workspace_ready):
+        response.status_code = 503
+        return {"status": "not-ready"}
+    return {"status": "ready"}
 
 
 @router.get("/metrics", response_class=PlainTextResponse)
@@ -144,6 +188,20 @@ def prometheus_metrics(_principal: ViewerPrincipal) -> str:
 @router.get("/metrics/json")
 def metrics_snapshot(_principal: ViewerPrincipal) -> dict[str, int]:
     return service.metrics_snapshot()
+
+
+@router.get("/diagnostics")
+def operational_diagnostics(_principal: AdminPrincipal) -> dict[str, object]:
+    return {
+        "platform": platform_store.diagnostics(),
+        "workspace": service.repository.diagnostics(),
+        "audit": audit_log.verify(),
+        "metrics": {
+            "persistent": service.metrics.persistent,
+            "counter_count": len(service.metrics_snapshot()),
+        },
+        "runtime": service.runtime.capabilities().model_dump(mode="json"),
+    }
 
 
 @router.get("/runtime", response_model=RuntimeCapabilities)
@@ -158,6 +216,263 @@ def current_session(principal: ViewerPrincipal) -> SessionView:
         role=principal.role.value,
         authentication_enabled=principal.key_id is not None,
     )
+
+
+def _require_workspace_admin(workspace_id: str, principal: Principal) -> None:
+    if principal.role is Role.ADMIN:
+        return
+    if platform_store.membership_role(workspace_id, principal.subject) != "admin":
+        raise HTTPException(status_code=403, detail="Workspace admin membership is required")
+
+
+def _require_workspace_member(workspace_id: str, principal: Principal) -> None:
+    if principal.role is Role.ADMIN:
+        return
+    if not platform_store.membership_role(workspace_id, principal.subject):
+        raise HTTPException(status_code=403, detail="Workspace membership is required")
+
+
+@router.post("/workspaces", response_model=TeamWorkspace, status_code=201)
+def create_team_workspace(request: TeamWorkspaceCreate, principal: AdminPrincipal) -> TeamWorkspace:
+    return TeamWorkspace.model_validate(
+        platform_store.create_workspace(request.name, principal.subject)
+    )
+
+
+@router.get("/workspaces", response_model=list[TeamWorkspace])
+def list_team_workspaces(principal: ViewerPrincipal) -> list[TeamWorkspace]:
+    return [
+        TeamWorkspace.model_validate(item)
+        for item in platform_store.list_workspaces(
+            principal.subject, include_all=principal.role is Role.ADMIN
+        )
+    ]
+
+
+@router.get("/workspaces/{workspace_id}/members", response_model=list[WorkspaceMember])
+def list_workspace_members(workspace_id: str, principal: ViewerPrincipal) -> list[WorkspaceMember]:
+    if principal.role is not Role.ADMIN and not platform_store.membership_role(
+        workspace_id, principal.subject
+    ):
+        raise HTTPException(status_code=403, detail="Workspace membership is required")
+    try:
+        return [
+            WorkspaceMember.model_validate(item)
+            for item in platform_store.list_members(workspace_id)
+        ]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/workspaces/{workspace_id}/members/{subject}", response_model=WorkspaceMember)
+def set_workspace_member(
+    workspace_id: str,
+    subject: str,
+    request: WorkspaceMemberUpdate,
+    principal: ViewerPrincipal,
+) -> WorkspaceMember:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        return WorkspaceMember.model_validate(
+            platform_store.set_member(workspace_id, subject, request.role)
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/workspaces/{workspace_id}/members/{subject}", status_code=204)
+def remove_workspace_member(
+    workspace_id: str, subject: str, principal: ViewerPrincipal
+) -> Response:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        platform_store.remove_member(workspace_id, subject)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/integrations", response_model=IntegrationView, status_code=201
+)
+def create_integration(
+    workspace_id: str,
+    request: IntegrationCreate,
+    principal: ViewerPrincipal,
+) -> IntegrationView:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        endpoint = integration_dispatcher.validate_endpoint(request.endpoint)
+        if request.secret_name:
+            platform_store.secret_ciphertext(workspace_id, request.secret_name)
+        return IntegrationView.model_validate(
+            platform_store.create_integration(
+                workspace_id,
+                request.name,
+                endpoint,
+                request.event_types,
+                request.secret_name,
+            )
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/workspaces/{workspace_id}/integrations", response_model=list[IntegrationView])
+def list_integrations(workspace_id: str, principal: ViewerPrincipal) -> list[IntegrationView]:
+    _require_workspace_member(workspace_id, principal)
+    try:
+        return [
+            IntegrationView.model_validate(item)
+            for item in platform_store.list_integrations(workspace_id)
+        ]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/workspaces/{workspace_id}/integrations/{integration_id}/dispatch",
+    response_model=IntegrationDelivery,
+)
+async def dispatch_integration(
+    workspace_id: str,
+    integration_id: str,
+    request: IntegrationDispatch,
+    principal: OperatorPrincipal,
+) -> IntegrationDelivery:
+    _require_workspace_member(workspace_id, principal)
+    try:
+        integration = platform_store.get_integration(integration_id)
+        if integration["workspace_id"] != workspace_id:
+            raise KeyError(f"Integration not found: {integration_id}")
+        signing_key = None
+        if integration["secret_ref"]:
+            signing_key = secret_vault.decrypt(
+                platform_store.secret_ciphertext(workspace_id, integration["secret_ref"])
+            )
+        result = await integration_dispatcher.dispatch(
+            integration, request.event_type, request.payload, signing_key
+        )
+        return IntegrationDelivery.model_validate(result)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Integration delivery failed") from exc
+
+
+@router.delete("/workspaces/{workspace_id}/integrations/{integration_id}", status_code=204)
+def delete_integration(
+    workspace_id: str, integration_id: str, principal: ViewerPrincipal
+) -> Response:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        integration = platform_store.get_integration(integration_id)
+        if integration["workspace_id"] != workspace_id:
+            raise KeyError(f"Integration not found: {integration_id}")
+        platform_store.delete_integration(integration_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.put("/workspaces/{workspace_id}/secrets/{name}", response_model=SecretMetadata)
+def put_workspace_secret(
+    workspace_id: str,
+    name: Annotated[str, Path(pattern=r"^[A-Z][A-Z0-9_]{1,79}$")],
+    request: SecretPut,
+    principal: ViewerPrincipal,
+) -> SecretMetadata:
+    _require_workspace_admin(workspace_id, principal)
+    if not secret_vault.available:
+        raise HTTPException(status_code=503, detail="Workspace secret storage is not configured")
+    try:
+        ciphertext = secret_vault.encrypt(request.value)
+        return SecretMetadata.model_validate(
+            platform_store.put_secret(workspace_id, name, ciphertext)
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/workspaces/{workspace_id}/secrets", response_model=list[SecretMetadata])
+def list_workspace_secrets(workspace_id: str, principal: ViewerPrincipal) -> list[SecretMetadata]:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        return [
+            SecretMetadata.model_validate(item)
+            for item in platform_store.list_secrets(workspace_id)
+        ]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/workspaces/{workspace_id}/secrets/{name}", status_code=204)
+def delete_workspace_secret(
+    workspace_id: str,
+    name: Annotated[str, Path(pattern=r"^[A-Z][A-Z0-9_]{1,79}$")],
+    principal: ViewerPrincipal,
+) -> Response:
+    _require_workspace_admin(workspace_id, principal)
+    try:
+        platform_store.delete_secret(workspace_id, name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+def _execute_job(job_id: str, request: JobCreate) -> None:
+    runner = (
+        job_runner
+        if job_runner.store is platform_store and job_runner.service is service
+        else type(job_runner)(platform_store, service)
+    )
+    runner.execute_job(job_id)
+
+
+@router.post("/jobs", response_model=JobView, status_code=202)
+def create_job(
+    request: JobCreate,
+    background_tasks: BackgroundTasks,
+    principal: OperatorPrincipal,
+) -> JobView:
+    _require_workspace_member(request.workspace_id, principal)
+    try:
+        job = platform_store.create_job(
+            request.workspace_id,
+            request.kind,
+            {"simulation_id": request.simulation_id},
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    background_tasks.add_task(_execute_job, job["id"], request)
+    return JobView.model_validate(job)
+
+
+@router.get("/workspaces/{workspace_id}/jobs", response_model=list[JobView])
+def list_jobs(workspace_id: str, principal: ViewerPrincipal) -> list[JobView]:
+    _require_workspace_member(workspace_id, principal)
+    try:
+        return [JobView.model_validate(item) for item in platform_store.list_jobs(workspace_id)]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}", response_model=JobView)
+def get_job(job_id: str, principal: ViewerPrincipal) -> JobView:
+    try:
+        job = platform_store.get_job(job_id)
+        _require_workspace_member(job["workspace_id"], principal)
+        return JobView.model_validate(job)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/contracts/analyze", response_model=ContractSummary)
@@ -181,6 +496,36 @@ def create_simulation(
 @router.get("/simulations", response_model=list[SimulationSummary])
 def list_simulations(_principal: ViewerPrincipal) -> list[SimulationSummary]:
     return service.list_simulations()
+
+
+@router.get("/simulations/{simulation_id}/gitops")
+def simulation_gitops_snapshot(
+    simulation_id: str, _principal: ViewerPrincipal
+) -> dict[str, object]:
+    try:
+        return build_snapshot(service.repository, simulation_id)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/simulations/{simulation_id}/ai/scenarios/draft", response_model=ScenarioAIDraft)
+async def draft_scenario_with_local_ai(
+    simulation_id: str,
+    request: ScenarioAIDraftRequest,
+    _principal: OperatorPrincipal,
+) -> ScenarioAIDraft:
+    if not ai_assistant.enabled:
+        raise HTTPException(status_code=503, detail="Local AI assistance is disabled")
+    try:
+        contract = service.repository.read_json(simulation_id, "contract.json")
+        definition = await ai_assistant.draft(contract, request.intent, request.scenario_name)
+        return ScenarioAIDraft(model=ai_assistant.model, definition=definition)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Local AI model request failed") from exc
 
 
 @router.post("/simulations/from-contract", response_model=Simulation, status_code=201)

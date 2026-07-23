@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
@@ -60,6 +61,118 @@ class WorkspaceReadiness(BaseModel):
     supported_workspace_schema_version: int
     workspace_writable: bool
     simulation_count: int = Field(ge=0)
+    platform_store_ready: bool = True
+    platform_schema_version: int = Field(default=2, ge=1)
+    supported_platform_schema_version: int = Field(default=2, ge=1)
+
+
+class TeamWorkspaceCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._ -]+$")
+
+
+class TeamWorkspace(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    created_by: str
+
+
+class WorkspaceMemberUpdate(BaseModel):
+    role: Literal["viewer", "operator", "admin"]
+
+
+class WorkspaceMember(BaseModel):
+    subject: str
+    role: Literal["viewer", "operator", "admin"]
+    created_at: datetime
+
+
+class IntegrationCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=80)
+    endpoint: str = Field(min_length=10, max_length=2048)
+    event_types: list[str] = Field(min_length=1, max_length=20)
+    secret_name: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{1,79}$")
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values):
+            raise ValueError("event_types must be unique")
+        if any(not re.fullmatch(r"[a-z][a-z0-9.-]{0,79}", value) for value in values):
+            raise ValueError("event_types must contain bounded lowercase topic names")
+        return values
+
+
+class IntegrationView(BaseModel):
+    id: str
+    workspace_id: str
+    name: str
+    endpoint: str
+    event_types: list[str]
+    secret_ref: str | None = None
+    enabled: bool
+    created_at: datetime
+
+
+class IntegrationDispatch(BaseModel):
+    event_type: str = Field(pattern=r"^[a-z][a-z0-9.-]{0,79}$")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationDelivery(BaseModel):
+    delivery_id: str
+    event_type: str
+    status_code: int
+    accepted: bool
+    attempts: int = Field(default=1, ge=1)
+
+
+class SecretPut(BaseModel):
+    value: str = Field(min_length=1, max_length=16_384)
+
+
+class SecretMetadata(BaseModel):
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class JobCreate(BaseModel):
+    workspace_id: str
+    kind: Literal["workspace-backup", "gitops-snapshot"]
+    simulation_id: str | None = None
+
+    @model_validator(mode="after")
+    def require_simulation_for_gitops(self) -> JobCreate:
+        if self.kind == "gitops-snapshot" and not self.simulation_id:
+            raise ValueError("simulation_id is required for a GitOps snapshot job")
+        return self
+
+
+class JobView(BaseModel):
+    id: str
+    workspace_id: str
+    kind: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    progress: int = Field(ge=0, le=100)
+    payload: dict[str, Any]
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScenarioAIDraftRequest(BaseModel):
+    intent: str = Field(min_length=10, max_length=2_000)
+    scenario_name: str | None = Field(default=None, min_length=3, max_length=100)
+
+
+class ScenarioAIDraft(BaseModel):
+    provider: Literal["ollama"] = "ollama"
+    model: str
+    definition: ScenarioDefinition
+    persisted: Literal[False] = False
+    requires_human_review: Literal[True] = True
 
 
 class DataGenerationRequest(BaseModel):

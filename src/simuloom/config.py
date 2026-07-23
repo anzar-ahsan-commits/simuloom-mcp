@@ -29,6 +29,14 @@ class Settings:
     auth_enabled: bool
     api_keys_json: str = field(repr=False)
     audit_signing_key: str | None = field(repr=False)
+    platform_db: Path
+    integration_allowed_hosts: frozenset[str]
+    integration_signing_key: str | None = field(repr=False)
+    integration_allow_http: bool
+    secrets_master_key: str | None = field(repr=False)
+    ai_enabled: bool
+    ai_base_url: str
+    ai_model: str
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -63,4 +71,18 @@ class Settings:
             auth_enabled=_boolean_env("SIMULOOM_AUTH_ENABLED"),
             api_keys_json=os.getenv("SIMULOOM_API_KEYS", "{}"),
             audit_signing_key=os.getenv("SIMULOOM_AUDIT_SIGNING_KEY") or None,
+            platform_db=Path(
+                os.getenv("SIMULOOM_PLATFORM_DB", str(workspace / "runtime" / "platform.db"))
+            ).resolve(),
+            integration_allowed_hosts=frozenset(
+                host.strip().lower().rstrip(".")
+                for host in os.getenv("SIMULOOM_INTEGRATION_ALLOWED_HOSTS", "").split(",")
+                if host.strip()
+            ),
+            integration_signing_key=os.getenv("SIMULOOM_INTEGRATION_SIGNING_KEY") or None,
+            integration_allow_http=_boolean_env("SIMULOOM_INTEGRATION_ALLOW_HTTP"),
+            secrets_master_key=os.getenv("SIMULOOM_SECRETS_MASTER_KEY") or None,
+            ai_enabled=_boolean_env("SIMULOOM_AI_ENABLED"),
+            ai_base_url=os.getenv("SIMULOOM_AI_BASE_URL", "http://localhost:11434"),
+            ai_model=os.getenv("SIMULOOM_AI_MODEL", "qwen3:8b"),
         )

@@ -16,6 +16,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest
+      - run: uv build
+      - run: uv run simuloom-gitops --help
       - name: Start WireMock
         run: docker compose up -d wiremock
       - name: Wait for WireMock
