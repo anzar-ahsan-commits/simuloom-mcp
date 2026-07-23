@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -149,7 +150,12 @@ class AuthAuditMiddleware:
             for key, value in scope.get("headers", [])
         }
         principal = self.controller.authenticate(headers)
-        request_id = headers.get("x-request-id") or uuid.uuid4().hex
+        supplied_request_id = headers.get("x-request-id", "").strip()
+        request_id = (
+            supplied_request_id
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", supplied_request_id)
+            else uuid.uuid4().hex
+        )
         started = time.perf_counter()
         if principal is None:
             response = JSONResponse(

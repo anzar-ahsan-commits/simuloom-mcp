@@ -47,3 +47,25 @@ def test_workspace_restore_rejects_traversal_before_writes(tmp_path: Path) -> No
 
     assert not (tmp_path / "target" / "safe").exists()
     assert not (tmp_path / "escape.json").exists()
+
+
+def test_workspace_backup_excludes_repository_control_files(tmp_path: Path) -> None:
+    source = service_at(tmp_path / "source")
+    data = source.workspace_backup()
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert ".workspace.lock" not in archive.namelist()
+        assert ".simuloom-workspace.json" not in archive.namelist()
+
+
+def test_workspace_restore_rejects_duplicate_paths_before_writes(tmp_path: Path) -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("simulation/file.json", "first")
+        archive.writestr("simulation/file.json", "second")
+    target = service_at(tmp_path / "target")
+
+    with pytest.raises(ValueError, match="duplicate path"):
+        target.restore_workspace(output.getvalue(), "admin")
+
+    assert not (tmp_path / "target" / "simulation").exists()

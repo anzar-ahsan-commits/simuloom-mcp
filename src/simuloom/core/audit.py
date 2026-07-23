@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from simuloom.core.locking import exclusive_file_lock
 
 
 class AuditLog:
@@ -18,6 +21,8 @@ class AuditLog:
         self.algorithm = "hmac-sha256" if signing_key else "sha256-chain"
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
+        self._lock_path.touch(exist_ok=True)
         verification = self.verify()
         if not verification["valid"]:
             raise RuntimeError(
@@ -39,7 +44,14 @@ class AuditLog:
         duration_ms: float,
         outcome: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with self._lock, exclusive_file_lock(self._lock_path):
+            verification = self._verify_unlocked()
+            if not verification["valid"]:
+                raise RuntimeError(
+                    f"Audit log integrity check failed at line {verification['error_line']}"
+                )
+            self._sequence = verification["total_events"]
+            self._last_hash = verification["last_hash"]
             event: dict[str, Any] = {
                 "sequence": self._sequence + 1,
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -59,6 +71,7 @@ class AuditLog:
             with self.path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
                 stream.flush()
+                os.fsync(stream.fileno())
             self._sequence = event["sequence"]
             self._last_hash = event["hash"]
             return event
@@ -73,7 +86,7 @@ class AuditLog:
             return [json.loads(line) for line in lines[-limit:] if line.strip()]
 
     def verify(self) -> dict[str, Any]:
-        with self._lock:
+        with self._lock, exclusive_file_lock(self._lock_path):
             return self._verify_unlocked()
 
     def _verify_unlocked(self) -> dict[str, Any]:

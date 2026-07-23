@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.27.0 includes governed releases, promotion, templates, deterministic orchestration,
+SimuLoom v0.28.0 includes governed releases, promotion, templates, deterministic orchestration,
 observability, and bounded workspace backup/restore.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
@@ -30,6 +30,7 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/clock/advance` | operator | Advance virtual time |
 | POST | `/api/v1/simulations/{simulation_id}/events` | operator | Publish an inbound orchestration event |
 | GET | `/api/v1/metrics` | viewer | Prometheus counters |
+| GET | `/api/v1/readiness` | viewer | Runtime and workspace readiness diagnostics |
 | GET/POST | `/api/v1/workspace/backup`, `/api/v1/workspace/restore` | admin | Backup or merge-restore workspace |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/state` | viewer | Read live WireMock state |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/compile` | operator | Generate mappings |
@@ -50,6 +51,20 @@ service-traffic façade is intentionally outside control-plane API-key middlewar
 restrict it separately at the ingress.
 
 The OpenAPI UI at `/docs` contains complete generated request and response schemas.
+
+## Readiness
+
+Use readiness for deployment gates and operator diagnostics. Unlike public liveness, it requires
+at least the viewer role because it reports workspace metadata.
+
+```bash
+curl --fail http://localhost:8000/api/v1/readiness \
+  -H "X-API-Key: $SIMULOOM_API_KEY"
+```
+
+The response reports runtime connectivity, workspace writability, current and supported workspace
+schema versions, and simulation count. `status` is `ready` only when the runtime is reachable and
+the workspace is writable.
 
 ## Operator Console
 

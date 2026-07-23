@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.28.0 - Consolidation and Hardening
+
+- Made workspace artifact writes atomic and durable, with process-coordinated transactions that
+  prevent lost scenario updates across local workers.
+- Introduced explicit workspace format metadata and schema compatibility checks while adopting
+  existing workspaces automatically.
+- Added authenticated runtime and workspace readiness diagnostics.
+- Coordinated audit-chain appends across processes and synchronized them to durable storage.
+- Hardened workspace backup/restore by excluding control files and rejecting duplicate targets
+  before any content is written.
+- Constrained caller-provided request IDs and added failure, concurrency, traversal, schema, and
+  multi-writer regression tests.
+
 ## 0.27.0 - Workspace Backup and Restore
 
 - Added bounded deterministic control-plane backups and merge-safe restore.

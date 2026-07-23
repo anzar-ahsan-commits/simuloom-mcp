@@ -51,6 +51,17 @@ class SessionView(BaseModel):
     authentication_enabled: bool
 
 
+class WorkspaceReadiness(BaseModel):
+    status: Literal["ready", "degraded"]
+    runtime: str
+    runtime_ready: bool
+    workspace_format: str
+    workspace_schema_version: int
+    supported_workspace_schema_version: int
+    workspace_writable: bool
+    simulation_count: int = Field(ge=0)
+
+
 class DataGenerationRequest(BaseModel):
     records: int = Field(default=25, ge=1, le=10_000)
     seed: int = 1207

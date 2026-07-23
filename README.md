@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.27.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.28.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -45,6 +45,8 @@ the same deterministic application services are available through REST and MCP.
 - Promote revisions across environments and build reusable parameterized templates.
 - Inject deterministic faults, advance virtual time, and orchestrate inbound events.
 - Observe orchestration counters and back up or merge-restore control-plane workspaces.
+- Persist workspace changes atomically with process-safe locks and explicit schema checks.
+- Inspect authenticated runtime and workspace readiness diagnostics.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -73,6 +75,15 @@ docker compose up --build
 - Operator Console: `http://localhost:8000/ui`
 - MCP Streamable HTTP: `http://localhost:8000/mcp`
 - WireMock runtime: `http://localhost:8080`
+
+Verify liveness and authenticated readiness (the API key header is optional when authentication
+is disabled):
+
+```bash
+curl --fail http://localhost:8000/api/v1/health
+curl --fail http://localhost:8000/api/v1/readiness \
+  -H "X-API-Key: ${SIMULOOM_API_KEY:-}"
+```
 
 WireMock remains the default. To use the native runtime instead:
 

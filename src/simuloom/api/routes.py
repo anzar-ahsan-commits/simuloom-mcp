@@ -69,6 +69,7 @@ from simuloom.models import (
     ValidationPlan,
     ValidationPlanRequest,
     ValidationRequest,
+    WorkspaceReadiness,
     WorkspaceRestoreResult,
 )
 from simuloom.runtime.models import RuntimeCapabilities
@@ -113,6 +114,26 @@ async def health() -> dict[str, str | bool]:
         "runtimeReady": runtime_ready,
         "wiremockReady": runtime_ready if runtime_name == "wiremock" else False,
     }
+
+
+@router.get("/readiness", response_model=WorkspaceReadiness)
+async def readiness(_principal: ViewerPrincipal) -> WorkspaceReadiness:
+    try:
+        runtime_ready = await service.runtime.health()
+    except Exception:
+        runtime_ready = False
+    workspace = service.repository.diagnostics()
+    ready = runtime_ready and workspace["writable"]
+    return WorkspaceReadiness(
+        status="ready" if ready else "degraded",
+        runtime=service.runtime.capabilities().runtime,
+        runtime_ready=runtime_ready,
+        workspace_format=workspace["format"],
+        workspace_schema_version=workspace["schema_version"],
+        supported_workspace_schema_version=workspace["supported_schema_version"],
+        workspace_writable=workspace["writable"],
+        simulation_count=workspace["simulation_count"],
+    )
 
 
 @router.get("/metrics", response_class=PlainTextResponse)
