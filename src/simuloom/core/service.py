@@ -30,7 +30,9 @@ from simuloom.core.manifest import (
 )
 from simuloom.core.pairwise import compile_pairwise_mappings, generate_pairwise_cases
 from simuloom.core.repository import WorkspaceRepository
+from simuloom.core.scenario_comparison import compare_scenario_revisions
 from simuloom.core.scenario_graph import scenario_graph_diagnostics
+from simuloom.core.scenario_releases import ScenarioReleaseStore
 from simuloom.core.scenario_revisions import ScenarioRevisionStore
 from simuloom.core.scenarios import (
     compile_scenario_mappings,
@@ -52,9 +54,11 @@ from simuloom.models import (
     ScenarioDefinition,
     ScenarioDeployResult,
     ScenarioGraphDiagnostic,
+    ScenarioRelease,
     ScenarioResetAllResult,
     ScenarioResetResult,
     ScenarioRevision,
+    ScenarioRevisionComparison,
     ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
@@ -74,6 +78,7 @@ class SimulationService:
         self.runtime = runtime
         self.wiremock = runtime  # Backward-compatible internal alias for integrations.
         self.revisions = ScenarioRevisionStore(repository)
+        self.releases = ScenarioReleaseStore(repository)
 
     def analyze(self, contract: dict[str, Any]) -> ContractSummary:
         return analyze_contract(contract)
@@ -187,6 +192,24 @@ class SimulationService:
             expected_etag,
         )
 
+    def compare_scenario_revisions(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        from_revision: int,
+        to_revision: int,
+    ) -> ScenarioRevisionComparison:
+        before = self.scenario_revision(simulation_id, scenario_id, from_revision)
+        after = self.scenario_revision(simulation_id, scenario_id, to_revision)
+        return compare_scenario_revisions(
+            simulation_id,
+            scenario_id,
+            from_revision,
+            before.definition,
+            to_revision,
+            after.definition,
+        )
+
     def list_scenarios(self, simulation_id: str) -> list[ScenarioSummary]:
         self._require_simulation(simulation_id)
         summaries: list[ScenarioSummary] = []
@@ -237,35 +260,85 @@ class SimulationService:
         view = self.get_scenario(simulation_id, scenario_id)
         name = wiremock_scenario_name(simulation_id, scenario_id)
         current = await self.runtime.scenario_state(name)
+        configured = view.definition
+        releases = self.releases.list(simulation_id, scenario_id)
+        if current is not None and releases:
+            configured = self.scenario_revision(
+                simulation_id, scenario_id, releases[0].revision
+            ).definition
         return ScenarioRuntimeState(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
             wiremock_scenario_name=name,
-            configured_initial_state=view.definition.initial_state,
-            configured_reset_state=view.definition.reset_state,
+            configured_initial_state=configured.initial_state,
+            configured_reset_state=configured.reset_state,
             current_state=current,
             deployed=current is not None,
         )
 
-    async def deploy_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioDeployResult:
+    async def deploy_scenario(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        actor: str = "api-client",
+        revision: int | None = None,
+        source_release: int | None = None,
+    ) -> ScenarioDeployResult:
         view = self.get_scenario(simulation_id, scenario_id)
-        compiled = self.compile_scenario(simulation_id, scenario_id)
-        mappings = self.repository.read_json(
-            simulation_id, f"mappings/scenarios/{scenario_id}.json"
+        selected = self.scenario_revision(simulation_id, scenario_id, revision or view.revision)
+        contract = self.repository.read_json(simulation_id, "contract.json")
+        validate_scenario_contract(contract, selected.definition)
+        mappings = compile_scenario_mappings(simulation_id, scenario_id, selected.definition)
+        self.repository.write_json(
+            simulation_id, f"mappings/scenarios/{scenario_id}.json", mappings
         )
+        scenario_name = wiremock_scenario_name(simulation_id, scenario_id)
         deployed = await self.runtime.deploy_scenario(
             from_wiremock_mappings(mappings),
-            compiled.wiremock_scenario_name,
-            view.definition.initial_state,
+            scenario_name,
+            selected.definition.initial_state,
             simulation_id,
         )
+        release = self.releases.record(selected, mappings, actor, source_release=source_release)
         return ScenarioDeployResult(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
-            wiremock_scenario_name=compiled.wiremock_scenario_name,
+            wiremock_scenario_name=scenario_name,
             deployed_mappings=deployed,
-            current_state=view.definition.initial_state,
+            current_state=selected.definition.initial_state,
             status="deployed",
+            release_number=release.release_number,
+            revision=release.revision,
+            etag=release.etag,
+            mapping_fingerprint=release.mapping_fingerprint,
+            deployed_at=release.deployed_at,
+            deployed_by=release.deployed_by,
+        )
+
+    def scenario_releases(self, simulation_id: str, scenario_id: str) -> list[ScenarioRelease]:
+        self.get_scenario(simulation_id, scenario_id)
+        return self.releases.list(simulation_id, scenario_id)
+
+    def scenario_release(
+        self, simulation_id: str, scenario_id: str, release_number: int
+    ) -> ScenarioRelease:
+        self.get_scenario(simulation_id, scenario_id)
+        return self.releases.get(simulation_id, scenario_id, release_number)
+
+    async def rollback_scenario_release(
+        self,
+        simulation_id: str,
+        scenario_id: str,
+        release_number: int,
+        actor: str,
+    ) -> ScenarioDeployResult:
+        release = self.scenario_release(simulation_id, scenario_id, release_number)
+        return await self.deploy_scenario(
+            simulation_id,
+            scenario_id,
+            actor=actor,
+            revision=release.revision,
+            source_release=release_number,
         )
 
     async def reset_scenario(self, simulation_id: str, scenario_id: str) -> ScenarioResetResult:
@@ -273,12 +346,18 @@ class SimulationService:
         name = wiremock_scenario_name(simulation_id, scenario_id)
         if await self.runtime.scenario_state(name) is None:
             raise RuntimeError("Deploy this scenario before resetting it")
-        await self.runtime.set_scenario_state(name, view.definition.reset_state)
+        definition = view.definition
+        releases = self.releases.list(simulation_id, scenario_id)
+        if releases:
+            definition = self.scenario_revision(
+                simulation_id, scenario_id, releases[0].revision
+            ).definition
+        await self.runtime.set_scenario_state(name, definition.reset_state)
         return ScenarioResetResult(
             simulation_id=simulation_id,
             scenario_id=scenario_id,
             wiremock_scenario_name=name,
-            current_state=view.definition.reset_state,
+            current_state=definition.reset_state,
             status="reset",
         )
 
@@ -288,6 +367,11 @@ class SimulationService:
         for simulation_id in self.repository.simulation_ids():
             for scenario_id, payload in self.repository.read_scenarios(simulation_id).items():
                 definition = ScenarioDefinition.model_validate(payload)
+                releases = self.releases.list(simulation_id, scenario_id)
+                if releases:
+                    definition = self.scenario_revision(
+                        simulation_id, scenario_id, releases[0].revision
+                    ).definition
                 name = wiremock_scenario_name(simulation_id, scenario_id)
                 if await self.runtime.scenario_state(name) is not None:
                     await self.runtime.set_scenario_state(name, definition.reset_state)
@@ -478,7 +562,12 @@ class SimulationService:
             status="profile-activated",
         )
 
-    async def deploy(self, simulation_id: str, reset_existing: bool = False) -> DeployResult:
+    async def deploy(
+        self,
+        simulation_id: str,
+        reset_existing: bool = False,
+        actor: str = "api-client",
+    ) -> DeployResult:
         self._require_simulation(simulation_id)
         try:
             mappings = self.repository.read_json(simulation_id, "mappings/mappings.json")
@@ -494,6 +583,12 @@ class SimulationService:
                 wiremock_scenario_name(simulation_id, scenario_id),
                 definition.initial_state,
             )
+            view = self.get_scenario(simulation_id, scenario_id)
+            revision = self.scenario_revision(simulation_id, scenario_id, view.revision)
+            scenario_mappings = self.repository.read_json(
+                simulation_id, f"mappings/scenarios/{scenario_id}.json"
+            )
+            self.releases.record(revision, scenario_mappings, actor)
         self.repository.update_status(simulation_id, "deployed")
         return DeployResult(
             simulation_id=simulation_id,

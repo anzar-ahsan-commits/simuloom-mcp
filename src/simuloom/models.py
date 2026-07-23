@@ -360,6 +360,24 @@ class ScenarioRevision(ScenarioRevisionSummary):
     definition: ScenarioDefinition
 
 
+class ScenarioRevisionChange(BaseModel):
+    path: str
+    kind: Literal["added", "removed", "modified"]
+    breaking: bool = False
+    before: Any | None = None
+    after: Any | None = None
+
+
+class ScenarioRevisionComparison(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    from_revision: int
+    to_revision: int
+    change_count: int
+    breaking_change_count: int
+    changes: list[ScenarioRevisionChange]
+
+
 class ScenarioGraphDiagnostic(BaseModel):
     severity: Literal["info", "warning"]
     code: Literal["unreachable-state", "terminal-state", "self-transition"]
@@ -405,6 +423,26 @@ class ScenarioDeployResult(BaseModel):
     deployed_mappings: int
     current_state: str
     status: Literal["deployed"]
+    release_number: int | None = None
+    revision: int | None = None
+    etag: str | None = None
+    mapping_fingerprint: str | None = None
+    deployed_at: datetime | None = None
+    deployed_by: str | None = None
+
+
+class ScenarioRelease(BaseModel):
+    simulation_id: str
+    scenario_id: str
+    release_number: int
+    revision: int
+    etag: str
+    mapping_fingerprint: str
+    mapping_count: int
+    deployed_at: datetime
+    deployed_by: str
+    source_release: int | None = None
+    status: Literal["deployed"] = "deployed"
 
 
 class ScenarioResetResult(BaseModel):

@@ -39,9 +39,11 @@ from simuloom.models import (
     ScenarioDefinition,
     ScenarioDeployResult,
     ScenarioGraphDiagnostic,
+    ScenarioRelease,
     ScenarioResetAllResult,
     ScenarioResetResult,
     ScenarioRevision,
+    ScenarioRevisionComparison,
     ScenarioRevisionSummary,
     ScenarioRuntimeState,
     ScenarioSummary,
@@ -229,7 +231,7 @@ async def deploy_simulation(
             detail="The admin role is required to reset existing WireMock mappings",
         )
     try:
-        return await service.deploy(simulation_id, request.reset_existing)
+        return await service.deploy(simulation_id, request.reset_existing, actor=principal.subject)
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -421,6 +423,27 @@ def scenario_history(
 
 
 @router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/compare",
+    response_model=ScenarioRevisionComparison,
+)
+def compare_scenario_revisions(
+    simulation_id: str,
+    scenario_id: str,
+    from_revision: int,
+    to_revision: int,
+    _principal: ViewerPrincipal,
+) -> ScenarioRevisionComparison:
+    try:
+        return service.compare_scenario_revisions(
+            simulation_id, scenario_id, from_revision, to_revision
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
     "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}",
     response_model=ScenarioRevision,
 )
@@ -531,10 +554,10 @@ def compile_scenario(
     response_model=ScenarioDeployResult,
 )
 async def deploy_scenario(
-    simulation_id: str, scenario_id: str, _principal: OperatorPrincipal
+    simulation_id: str, scenario_id: str, principal: OperatorPrincipal
 ) -> ScenarioDeployResult:
     try:
-        return await service.deploy_scenario(simulation_id, scenario_id)
+        return await service.deploy_scenario(simulation_id, scenario_id, actor=principal.subject)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -543,6 +566,83 @@ async def deploy_scenario(
         raise HTTPException(
             status_code=502, detail=f"WireMock scenario deployment failed: {exc}"
         ) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/deploy",
+    response_model=ScenarioDeployResult,
+)
+async def deploy_scenario_revision(
+    simulation_id: str,
+    scenario_id: str,
+    revision: int,
+    principal: OperatorPrincipal,
+) -> ScenarioDeployResult:
+    try:
+        return await service.deploy_scenario(
+            simulation_id, scenario_id, actor=principal.subject, revision=revision
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Scenario deployment failed: {exc}") from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/releases",
+    response_model=list[ScenarioRelease],
+)
+def scenario_releases(
+    simulation_id: str, scenario_id: str, _principal: ViewerPrincipal
+) -> list[ScenarioRelease]:
+    try:
+        return service.scenario_releases(simulation_id, scenario_id)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}",
+    response_model=ScenarioRelease,
+)
+def get_scenario_release(
+    simulation_id: str,
+    scenario_id: str,
+    release_number: int,
+    _principal: ViewerPrincipal,
+) -> ScenarioRelease:
+    try:
+        return service.scenario_release(simulation_id, scenario_id, release_number)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}/rollback",
+    response_model=ScenarioDeployResult,
+)
+async def rollback_scenario_release(
+    simulation_id: str,
+    scenario_id: str,
+    release_number: int,
+    principal: OperatorPrincipal,
+) -> ScenarioDeployResult:
+    try:
+        return await service.rollback_scenario_release(
+            simulation_id, scenario_id, release_number, principal.subject
+        )
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Scenario rollback failed: {exc}") from exc
 
 
 @router.post(

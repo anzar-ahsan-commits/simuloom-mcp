@@ -1,6 +1,6 @@
 # SimuLoom scenario and validation API
 
-SimuLoom v0.16.0 adds safe concurrent scenario editing and immutable revision history.
+SimuLoom v0.17.0 adds semantic revision comparison and immutable scenario releases.
 WireMock remains the default, and existing contract, dataset, profile, validation,
 authentication, scenario, response, and artifact shapes remain compatible.
 
@@ -13,6 +13,11 @@ authentication, scenario, response, and artifact shapes remain compatible.
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history` | viewer | List revisions, newest first |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}` | viewer | Read an immutable revision |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/restore` | operator | Restore it as a new revision |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/compare` | viewer | Compare two revisions semantically |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/history/{revision}/deploy` | operator | Deploy an exact revision |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases` | viewer | List immutable deployment records |
+| GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}` | viewer | Inspect one release |
+| POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/releases/{release_number}/rollback` | operator | Redeploy a release as a new release |
 | GET | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/state` | viewer | Read live WireMock state |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/compile` | operator | Generate mappings |
 | POST | `/api/v1/simulations/{simulation_id}/scenarios/{scenario_id}/deploy` | operator | Compile, deploy, and initialize |
@@ -98,6 +103,27 @@ curl -sS -X POST "$BASE/history/1/restore" -H "If-Match: $CURRENT_ETAG" | jq .
 
 Pre-v0.16 scenarios are adopted as revision 1 on first access without changing their
 definition. Restoring an older definition creates a new head revision; history is retained.
+
+## Revision comparison and releases
+
+Comparison uses stable state and handler names and reports added, removed, and modified paths.
+Removed states or handlers and changed request matchers, initial states, or transitions are
+flagged as potentially breaking. Deployments are recorded only after the runtime accepts the
+mappings. Each release pins the definition revision and ETag plus a SHA-256 fingerprint of the
+compiled mappings.
+
+```bash
+BASE=http://localhost:8000/api/v1/simulations/$SIMULATION_ID/scenarios/order-lifecycle
+
+curl -sS "$BASE/history/compare?from_revision=1&to_revision=2" | jq .
+curl -sS -X POST "$BASE/history/1/deploy" | jq .
+curl -sS "$BASE/releases" | jq .
+curl -sS -X POST "$BASE/releases/1/rollback" | jq .
+```
+
+Rollback does not mutate an earlier release. It recompiles and deploys the pinned revision, then
+records the result as the next release with `source_release` identifying the rollback source.
+The existing `/deploy` endpoint remains compatible and deploys the current head revision.
 
 ## Scenario validation
 

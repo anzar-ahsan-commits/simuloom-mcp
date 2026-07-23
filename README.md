@@ -4,7 +4,7 @@ SimuLoom is an open-source control plane for contract-driven service virtualizat
 synthetic test-data management. An approved OpenAPI contract remains the source of truth;
 the same deterministic application services are available through REST and MCP.
 
-> Status: early MVP (`v0.16.0`). All example records are fictional and synthetic.
+> Status: early MVP (`v0.17.0`). All example records are fictional and synthetic.
 
 ## What works in this milestone
 
@@ -40,6 +40,7 @@ the same deterministic application services are available through REST and MCP.
 - Operate the core simulation workflow from a bundled, role-aware web console.
 - Build portable stateful scenarios with a visual SVG graph and contract-aware inspector.
 - Safely edit scenarios with immutable revision history, ETags, conflict detection, and restore.
+- Compare revisions and deploy or roll back exact, fingerprinted scenario releases.
 - Invoke the workflow through REST or MCP Streamable HTTP.
 
 ## Architecture
@@ -166,6 +167,11 @@ GET  /api/v1/simulations/{id}/scenarios/{scenario_id}
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/history
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/restore
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/history/compare
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/history/{revision}/deploy
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/releases
+GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/releases/{release_number}
+POST /api/v1/simulations/{id}/scenarios/{scenario_id}/releases/{release_number}/rollback
 GET  /api/v1/simulations/{id}/scenarios/{scenario_id}/state
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/compile
 POST /api/v1/simulations/{id}/scenarios/{scenario_id}/deploy
@@ -434,7 +440,10 @@ trusted: SimuLoom recompiles them from the validated contract, dataset, and prof
 - `import_simulation_bundle`
 - `configure_scenario`
 - `scenario_history`
+- `compare_scenario_revisions`
 - `restore_scenario_revision`
+- `scenario_releases`
+- `rollback_scenario_release`
 - `inspect_scenario`
 - `compile_scenario`
 - `deploy_scenario`
@@ -457,6 +466,9 @@ Scenario definitions are available as
 
 Immutable revision metadata is available as
 `scenario://{simulation_id}/{scenario_id}/history`.
+
+Immutable deployment records are available as
+`scenario://{simulation_id}/{scenario_id}/releases`.
 
 Live runtime state is available as
 `scenario://{simulation_id}/{scenario_id}/state`.

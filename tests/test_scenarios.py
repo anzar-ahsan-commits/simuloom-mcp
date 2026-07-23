@@ -168,6 +168,8 @@ async def test_scenario_service_persists_deploys_and_resets(tmp_path) -> None:
     assert compiled.mapping_count == 2
     assert whole_simulation.stateful_mapping_count == 2
     assert deployed.current_state == "NEW"
+    assert deployed.release_number == 1
+    assert deployed.revision == 1
     assert state.deployed is True
 
     wiremock.states[compiled.wiremock_scenario_name] = "PENDING"
@@ -177,6 +179,48 @@ async def test_scenario_service_persists_deploys_and_resets(tmp_path) -> None:
     wiremock.states[compiled.wiremock_scenario_name] = "PENDING"
     reset_all = await service.reset_all_scenarios()
     assert reset_all.reset_scenarios == 1
+
+
+@pytest.mark.asyncio
+async def test_exact_revision_deployment_history_and_rollback(tmp_path) -> None:
+    from simuloom.core.repository import WorkspaceRepository
+    from simuloom.core.service import SimulationService
+
+    wiremock = ScenarioWireMock()
+    service = SimulationService(WorkspaceRepository(tmp_path), wiremock)  # type: ignore[arg-type]
+    simulation = service.create("Release management", contract())
+    first = ScenarioDefinition.model_validate(definition_payload())
+    configured = service.configure_scenario(simulation.id, "order-lifecycle", first)
+    release_one = await service.deploy_scenario(
+        simulation.id, "order-lifecycle", actor="release-operator"
+    )
+    changed_payload = definition_payload()
+    changed_payload["states"][0]["handlers"][0]["response"]["json_body"] = {"status": "REVISED"}
+    second = service.configure_scenario(
+        simulation.id,
+        "order-lifecycle",
+        ScenarioDefinition.model_validate(changed_payload),
+        expected_etag=configured.etag,
+    )
+    release_two = await service.deploy_scenario(
+        simulation.id, "order-lifecycle", actor="release-operator"
+    )
+    rollback = await service.rollback_scenario_release(
+        simulation.id, "order-lifecycle", 1, "rollback-operator"
+    )
+    releases = service.scenario_releases(simulation.id, "order-lifecycle")
+
+    assert release_one.release_number == 1
+    assert release_two.release_number == 2
+    assert release_two.revision == second.revision == 2
+    assert release_one.mapping_fingerprint != release_two.mapping_fingerprint
+    assert rollback.release_number == 3
+    assert rollback.revision == 1
+    assert rollback.mapping_fingerprint == release_one.mapping_fingerprint
+    assert [release.release_number for release in releases] == [3, 2, 1]
+    assert releases[0].source_release == 1
+    assert releases[0].deployed_by == "rollback-operator"
+    assert wiremock.deployed[0].response.json_body["status"] == "PENDING"
 
 
 def test_scenario_bundle_round_trip(tmp_path) -> None:
