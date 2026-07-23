@@ -35,6 +35,29 @@ Follow the copy-pasteable [order lifecycle](../examples/order-lifecycle/README.m
 inspect, pay, and ship a synthetic order. The scenario moves deterministically through
 `NOT_CREATED → PENDING → PAID → SHIPPED`, then resets to its initial state.
 
+## See the workflow
+
+### Design a stateful service visually
+
+![Visual Scenario Designer showing the synthetic order lifecycle](images/scenario-designer.png)
+
+The designer keeps the approved contract authoritative while exposing states, request handlers,
+transitions, revisions, releases, and deployment controls in one view.
+
+### Inspect validation evidence
+
+![Passing validation evidence for boundary, negative, and pairwise cases](images/validation-evidence.png)
+
+Validation reports separate operation, scenario, boundary, negative, and pairwise coverage so a
+passing HTTP response cannot hide an untested contract area.
+
+### Ask the local AI Copilot
+
+![Local AI Copilot explaining a simulation and showing an approval-gated action](images/ai-copilot.png)
+
+The optional local Copilot can explain grounded simulation context and propose allowlisted
+operations. Proposed changes remain inert until an authorized operator explicitly approves them.
+
 Stop the local stack when finished:
 
 ```bash
