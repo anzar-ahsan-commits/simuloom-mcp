@@ -20,6 +20,7 @@ deterministic source of truth through a web console, REST, and MCP.
 Start the [five-minute order-lifecycle walkthrough](docs/launch.md), explore the
 [technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md). Stuck
 partway through? Check [troubleshooting](docs/troubleshooting.md) or the [glossary](docs/glossary.md).
+See [supported versions](docs/compatibility.md) for what is continuously verified.
 
 ![SimuLoom Operator Console showing runtime health, simulations, and validation evidence](docs/images/simuloom-overview.png)
 

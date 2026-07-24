@@ -1,0 +1,195 @@
+name: Verify public artifacts
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package/image version to verify, e.g. 0.42.0 (defaults to the newest published version)
+        required: false
+        type: string
+  workflow_run:
+    workflows: [Publish to PyPI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-version:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      pip-spec: ${{ steps.resolve.outputs.pip-spec }}
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+    steps:
+      - id: resolve
+        run: |
+          raw="${{ inputs.version }}"
+          if [ -z "$raw" ] && [ -n "${{ github.event.workflow_run.head_branch }}" ]; then
+            raw="${{ github.event.workflow_run.head_branch }}"
+          fi
+          version="${raw#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$version" ]; then
+            echo "pip-spec=simuloom-mcp==$version" >> "$GITHUB_OUTPUT"
+            echo "image-tag=$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "pip-spec=simuloom-mcp" >> "$GITHUB_OUTPUT"
+            echo "image-tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+  pypi-install:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the published wheel from a clean environment
+        run: python -m pip install --no-cache-dir "${{ needs.resolve-version.outputs.pip-spec }}"
+
+      - name: Verify package metadata
+        run: |
+          python -c "import importlib.metadata as m; print('installed version:', m.version('simuloom-mcp'))"
+          python -c "import simuloom; print('import ok:', simuloom.__version__)"
+
+      - name: Smoke-test the simuloom-gitops console script
+        run: simuloom-gitops --help
+
+      - name: Smoke-test the simuloom server console script
+        run: |
+          simuloom &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://localhost:8000/api/v1/health && exit 0
+            sleep 1
+          done
+          echo "::error::simuloom console script did not become healthy"
+          exit 1
+
+  ghcr-image:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/anzar-ahsan-commits/simuloom-mcp:${{ needs.resolve-version.outputs.image-tag }}
+    steps:
+      - name: Fetch only the order-lifecycle example fixtures
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            examples/order-lifecycle
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pull the published image anonymously
+        run: docker pull "$IMAGE"
+
+      - name: Start the container (native runtime, no external dependencies)
+        run: |
+          docker run -d --name simuloom-verify -p 8000:8000 \
+            -e SIMULOOM_RUNTIME=native \
+            -e SIMULOOM_NATIVE_RUNTIME_STORE=memory \
+            "$IMAGE"
+
+      - name: Wait for readiness
+        run: |
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://localhost:8000/api/v1/readyz && exit 0
+            sleep 1
+          done
+          echo "::error::container did not become ready"
+          docker logs simuloom-verify
+          exit 1
+
+      - name: Verify the health endpoint
+        run: curl --fail --silent http://localhost:8000/api/v1/health
+
+      - name: Verify the container runs as its declared non-root user
+        run: |
+          uid=$(docker exec simuloom-verify id -u)
+          test "$uid" = "10001" || { echo "::error::expected uid 10001, got $uid"; exit 1; }
+
+      - name: Install the YAML-to-JSON converter
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+      - name: Exercise the order lifecycle end to end
+        run: |
+          set -euo pipefail
+          to_json() {
+            python3 -c "
+          import json, sys, yaml
+          json.dump(yaml.safe_load(sys.stdin), sys.stdout)
+          " < "$1"
+          }
+          contract=$(to_json examples/order-lifecycle/openapi.yaml)
+          scenario=$(to_json examples/order-lifecycle/scenario.yaml)
+
+          simulation_id=$(jq -n --argjson contract "$contract" '{name: "Public artifact verification", contract: $contract}' |
+            curl --fail --silent -X POST http://localhost:8000/api/v1/simulations \
+              -H 'Content-Type: application/json' --data-binary @- | jq -r '.id')
+
+          curl --fail --silent -X PUT \
+            "http://localhost:8000/api/v1/simulations/$simulation_id/scenarios/order-lifecycle" \
+            -H 'Content-Type: application/json' --data "$scenario" >/dev/null
+
+          curl --fail --silent -X POST \
+            "http://localhost:8000/api/v1/simulations/$simulation_id/scenarios/order-lifecycle/compile" >/dev/null
+
+          curl --fail --silent -X POST \
+            "http://localhost:8000/api/v1/simulations/$simulation_id/scenarios/order-lifecycle/deploy" >/dev/null
+
+          service_base="http://localhost:8000/runtime/$simulation_id"
+
+          curl --fail --silent -X POST "$service_base/orders" \
+            -H 'Content-Type: application/json' \
+            -d '{"itemId":"ITEM-SYN-001","quantity":1}' >/dev/null
+
+          curl --fail --silent -X POST "$service_base/orders/ORD-SYN-001/payment" \
+            -H 'Content-Type: application/json' \
+            -d '{"paymentToken":"PAY-SYN-001"}' >/dev/null
+
+          curl --fail --silent -X POST "$service_base/orders/ORD-SYN-001/shipment" \
+            -H 'Content-Type: application/json' \
+            -d '{"carrier":"SYNTHETIC-CARRIER"}' >/dev/null
+
+          status=$(curl --fail --silent "$service_base/orders/ORD-SYN-001" | jq -r '.status')
+          test "$status" = "SHIPPED" || { echo "::error::expected SHIPPED, got $status"; exit 1; }
+          echo "order lifecycle reached SHIPPED via the published image"
+
+      - name: Container logs
+        if: always()
+        run: docker logs simuloom-verify
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f simuloom-verify
+
+  compatibility-summary:
+    needs: [resolve-version, pypi-install, ghcr-image]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish a concise compatibility result
+        run: |
+          {
+            echo "## Public artifact verification — ${{ needs.resolve-version.outputs.version || 'latest' }}"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| PyPI wheel install + console scripts (Python 3.12, 3.13) | ${{ needs.pypi-install.result }} |"
+            echo "| GHCR image: health, readiness, non-root, order lifecycle | ${{ needs.ghcr-image.result }} |"
+            echo
+            echo "See [docs/compatibility.md](https://github.com/${{ github.repository }}/blob/main/docs/compatibility.md) for the maintained compatibility table."
+          } >> "$GITHUB_STEP_SUMMARY"
