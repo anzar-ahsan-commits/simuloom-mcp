@@ -7,72 +7,92 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-SimuLoom is an open-source control plane for contract-driven service virtualization and
-synthetic test-data management. An approved OpenAPI contract remains the source of truth;
-the same deterministic application services are available through REST and MCP.
+Your frontend is ready. The order API is not. The payment sandbox is shared, flaky, and cannot
+reliably reproduce the failure your team needs to fix before Friday's demo.
+
+**SimuLoom turns an approved OpenAPI contract into a virtual service you can actually drive:**
+realistic synthetic data, stateful business journeys, controlled failures, and evidence showing
+what was tested. It gives developers, QA engineers, CI pipelines, and AI clients the same
+deterministic source of truth through a web console, REST, and MCP.
 
 > Status: public beta (`v0.42.0`). All example records are fictional and synthetic.
 
-Start with the [five-minute public-beta walkthrough](docs/launch.md), continue with the
+Start the [five-minute order-lifecycle walkthrough](docs/launch.md), explore the
 [technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md).
 
 ![SimuLoom Operator Console showing runtime health, simulations, and validation evidence](docs/images/simuloom-overview.png)
 
-_The bundled Operator Console keeps runtime health, simulations, scenarios, evidence, team
-workspaces, and the local AI Copilot in one deterministic control plane._
+_One place to design a dependency, run it, break it on purpose, and prove how it behaved._
 
-## What works in this milestone
+## See the idea in 60 seconds
 
-- Analyze an OpenAPI 3.x contract and calculate a stable fingerprint.
-- Create a versioned local simulation workspace.
-- Generate reproducible synthetic requests from arbitrary OpenAPI JSON schemas.
-- Populate path, query, header, cookie, and JSON request-body inputs.
-- Compile successful OpenAPI responses into portable runtime mappings.
-- Preview validation cases before deployment and cover every contract operation.
-- Inspect generated datasets through REST or MCP resources.
-- Turn synthetic member records into exact, correlated request/response mappings.
-- Configure portable, contract-validated multi-step scenarios.
-- Inspect, deploy, and reset individual WireMock scenario state.
-- Reset every deployed scenario through an admin-only operation.
-- Return a deterministic 404 response for unknown synthetic member IDs.
-- Activate normal, slow, unavailable, and deterministic intermittent profiles.
-- Simulate a contract-backed `SUBMITTED → PROCESSING → COMPLETED` journey.
-- Execute live validation cases against WireMock and validate 2xx response schemas.
-- Replay every reachable scenario handler from a deterministic initial state.
-- Calculate operation, scenario, state, and transition coverage and capture unmatched traffic.
-- Generate opt-in valid boundary and documented negative cases from OpenAPI request schemas.
-- Publish boundary and negative constraint coverage in JSON and HTML evidence.
-- Generate bounded pairwise suites that cover every two-value request interaction.
-- Report incomplete pairwise coverage when a configured case cap is too low.
-- Publish machine-readable JSON and human-readable HTML evidence.
-- Export reproducible, Git-friendly `simulation.yaml` bundles.
-- Safely import portable bundles and regenerate mappings from approved source artifacts.
-- Authenticate REST and MCP clients with role-scoped API keys.
-- Record request outcomes in a tamper-evident JSONL audit chain.
-- Deploy mappings to the default WireMock adapter or the in-process native runtime.
-- Discover the selected runtime and its capabilities through REST and MCP.
-- Persist native mappings, scenario state, and bounded journals across restarts with SQLite.
-- Operate the core simulation workflow from a bundled, role-aware web console.
-- Build portable stateful scenarios with a visual SVG graph and contract-aware inspector.
-- Safely edit scenarios with immutable revision history, ETags, conflict detection, and restore.
-- Compare revisions and deploy or roll back exact, fingerprinted scenario releases.
-- Govern releases with approval gates and tamper-evident policy evidence.
-- Promote revisions across environments and build reusable parameterized templates.
-- Inject deterministic faults, advance virtual time, and orchestrate inbound events.
-- Observe orchestration counters and back up or merge-restore control-plane workspaces.
-- Persist workspace changes atomically with process-safe locks and explicit schema checks.
-- Inspect authenticated runtime and workspace readiness diagnostics.
-- Use guided scenario dialogs instead of command-string prompts.
-- Manage durable team workspaces, role-scoped memberships, background jobs, and encrypted secrets.
-- Export integrity-protected GitOps snapshots and detect configuration drift from CI.
-- Deliver allowlisted, signed, idempotent outbound integration events with retry and circuit control.
-- Deploy as a non-root container with Compose and Kubernetes health/readiness probes.
-- Draft contract-valid scenarios with an optional local Ollama model while keeping save, review,
-  approval, and deployment human-controlled.
-- Operate team workspaces from the console and resume queued jobs after application restarts.
-- Invoke the workflow through REST or MCP Streamable HTTP.
-- Diagnose simulations through evidence-grounded AI chat with provider/model readiness status.
-- Rename, archive, or delete persistent AI conversations.
+Suppose a checkout team depends on an order service that is still being built. They have an
+OpenAPI file, but they also need the service to remember what happened:
+
+```text
+NOT_CREATED ── create order ──> PENDING ── pay ──> PAID ── ship ──> SHIPPED
+```
+
+With SimuLoom, that team can:
+
+1. Import the approved contract—without copying production traffic or customer records.
+2. Generate clearly fictional, repeatable orders such as `ORD-SYN-001`.
+3. Build the lifecycle visually and deploy it to WireMock or SimuLoom's native runtime.
+4. Make the dependency slow, unavailable, or intermittently failing to exercise client recovery.
+5. Validate normal, boundary, negative, pairwise, and state-transition behavior.
+6. Hand reviewers JSON/HTML evidence instead of saying, “it worked on my machine.”
+
+That same simulation can be operated by a person in the console, a CI job over REST, or an AI
+client through MCP. All three use the same server-side validation and authorization rules.
+
+## When SimuLoom is useful
+
+| Situation | What SimuLoom gives you |
+| --- | --- |
+| An upstream team has published OpenAPI but not a working service | A contract-derived endpoint your client team can use today |
+| A shared sandbox changes underneath the test suite | Seeded synthetic data and deterministic responses |
+| A bug happens only after several business steps | Stateful, resettable scenario journeys with verified transitions |
+| Retry, timeout, and error handling are hard to trigger safely | Controlled slow, unavailable, intermittent, and transport-fault behavior |
+| Happy-path tests pass but important combinations remain untested | Boundary, negative, and bounded pairwise case generation |
+| Reviewers ask what was actually exercised | Machine-readable JSON and human-readable HTML evidence |
+| An AI assistant needs to understand or operate the environment | Grounded MCP/Copilot context with allowlisted, human-approved actions |
+
+## Why this is more than another mock server
+
+- **Contract-first:** the OpenAPI document—not a prompt or copied payload—is authoritative.
+- **Business-state aware:** requests can move through realistic workflows, not isolated canned
+  responses.
+- **Deterministic by design:** the same contract, seed, and configuration reproduce the same test
+  environment.
+- **Evidence-producing:** SimuLoom measures operation, constraint, pair, state, and transition
+  coverage.
+- **Human-governed AI:** local Ollama can explain evidence and propose a bounded action, but it
+  cannot silently save, approve, deploy, access secrets, or execute arbitrary tools.
+- **Portable and automatable:** use the console, REST, MCP, GitOps snapshots, Python packages, or a
+  versioned container without creating separate implementations.
+
+<details>
+<summary><strong>Explore the full capability map</strong></summary>
+
+- Analyze OpenAPI 3.x operations, schemas, documented responses, and stable fingerprints.
+- Generate deterministic synthetic path, query, header, cookie, and JSON-body inputs.
+- Compile exact dataset mappings, contract fallbacks, behavior profiles, scenarios, edge cases,
+  and pairwise cases into vendor-neutral runtime definitions.
+- Deploy to WireMock or a durable native runtime with capability discovery and request journals.
+- Design stateful scenarios visually with revisions, ETags, semantic comparison, reviews,
+  immutable releases, rollback, promotion, and parameterized templates.
+- Validate response schemas and report operation, scenario, state, transition, boundary, negative,
+  and pairwise coverage in JSON and HTML.
+- Simulate delays, unavailability, deterministic intermittent behavior, transport faults, virtual
+  time, and safe inbound events.
+- Export portable bundles and integrity-protected GitOps snapshots; detect drift from CI.
+- Manage role-scoped team workspaces, encrypted secrets, signed integrations, durable jobs,
+  metrics, audit chains, backups, and readiness diagnostics.
+- Use an optional local Ollama Copilot for evidence-grounded explanations and approval-gated
+  `generate`, `compile`, `deploy`, or single-scenario reset proposals.
+- Run as a non-root Python package/container with Compose and single-replica Kubernetes examples.
+
+</details>
 
 ## Architecture
 

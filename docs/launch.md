@@ -1,16 +1,22 @@
-# Meet SimuLoom: deterministic virtual services from OpenAPI
+# Your client is ready. Its dependency is not.
 
-SimuLoom is an open-source control plane for teams that need realistic APIs before every real
-dependency is available, affordable, or safe to call. It turns an approved OpenAPI contract into
-synthetic data, deterministic virtual-service behavior, stateful scenarios, and validation
-evidence. REST, MCP, and the operator console use the same application services, so automation
-and humans see the same source of truth.
+It is late in the sprint. The checkout UI is working, but the order service is unfinished. The
+shared payment sandbox cannot be reset, and the bug you need to reproduce appears only after an
+order is created, paid, and then rejected during shipment.
+
+A single `200 OK` mock will not help. Your team needs a dependency that remembers business state,
+fails in controlled ways, and can prove what happened during a test run.
+
+**That is the job SimuLoom is built for.** Give it an approved OpenAPI contract and it can produce
+clearly synthetic data, deterministic virtual-service behavior, stateful scenarios, and validation
+evidence. A developer can use the web console, CI can use REST, and an AI client can use MCP—all
+through the same application services and safeguards.
 
 SimuLoom `v0.42.0` is a public beta. It is useful for local development, integration testing,
 demos, CI experiments, and learning. It does not claim a production SLA or replace testing
 against the real provider.
 
-## Five-minute Docker walkthrough
+## Five minutes from contract to working order journey
 
 Prerequisites: Git, Docker, and Docker Compose.
 
@@ -24,16 +30,23 @@ curl --fail http://localhost:8000/api/v1/health
 curl --fail http://localhost:8000/api/v1/readyz
 ```
 
-Open:
+When readiness returns `"status": "ready"`, open:
 
 - operator console: <http://localhost:8000/ui>
 - interactive REST documentation: <http://localhost:8000/docs>
 - MCP endpoint: <http://localhost:8000/mcp>
 - WireMock: <http://localhost:8080>
 
-Follow the copy-pasteable [order lifecycle](../examples/order-lifecycle/README.md) to create,
-inspect, pay, and ship a synthetic order. The scenario moves deterministically through
-`NOT_CREATED → PENDING → PAID → SHIPPED`, then resets to its initial state.
+Now follow the copy-pasteable [order lifecycle](../examples/order-lifecycle/README.md). You will
+create a fictional order, inspect it while pending, pay it, ship it, inspect the final result, and
+reset the service for the next test:
+
+```text
+NOT_CREATED ── create ──> PENDING ── pay ──> PAID ── ship ──> SHIPPED
+```
+
+The important part is not the four labels. It is that every response and transition is tied to
+the contract, reproducible after reset, and available as validation evidence.
 
 ## See the workflow
 
@@ -83,13 +96,21 @@ The public container is:
 ghcr.io/anzar-ahsan-commits/simuloom-mcp:0.42.0
 ```
 
-## Why teams use it
+## Picture it in a real team
 
-- Frontend and integration teams can work before an upstream service is ready.
-- QA teams can replay deterministic happy paths, failures, boundaries, and state transitions.
-- Platform teams can validate approved contracts through REST, MCP, GitOps snapshots, and CI.
-- Demo environments can avoid production credentials and customer data.
-- Local AI can explain evidence and draft proposals without silently deploying changes.
+**Maya, frontend engineer:** develops against a stable order API before the upstream implementation
+is available.
+
+**Leo, QA engineer:** resets the exact same lifecycle before every test, then verifies boundaries,
+invalid inputs, failures, and state transitions without touching customer data.
+
+**Nora, platform engineer:** promotes an immutable scenario revision, runs it in CI, and shares
+evidence showing precisely what the virtual environment covered.
+
+**A local AI assistant:** explains why a validation failed and proposes compiling or deploying the
+simulation. The proposal remains inert until an authorized person approves it.
+
+One contract and one governed simulation serve all four workflows.
 
 ## Trust and safety model
 
