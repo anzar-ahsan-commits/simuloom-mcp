@@ -91,7 +91,9 @@ class AccessController:
                 role = Role(identity.get("role"))
             except ValueError as exc:
                 raise ValueError(f"Invalid role configured for subject {subject}") from exc
-            key_id = hashlib.sha256(secret.encode()).hexdigest()[:12]
+            key_id = hmac.new(secret.encode(), b"simuloom-api-key-id", hashlib.sha256).hexdigest()[
+                :12
+            ]
             parsed.append((secret, Principal(subject.strip(), role, key_id)))
         return parsed
 
