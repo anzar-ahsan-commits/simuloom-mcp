@@ -1,0 +1,67 @@
+name: Onboarding feedback
+description: Tell us where the five-minute guide slowed you down
+title: "onboarding: "
+labels: [onboarding]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        This is not a bug report — it is how we measure and shorten time-to-first-scenario.
+        Concrete friction ("step 4 assumed X and I had Y") is more useful than general
+        impressions. Do not include credentials, customer contracts, production payloads, or
+        personal data.
+  - type: input
+    id: time-to-first-scenario
+    attributes:
+      label: How long did it take to reach a working order lifecycle?
+      description: Wall-clock time from `git clone` (or `pip install`) to the SHIPPED state.
+      placeholder: "e.g. 12 minutes, or: gave up after 20 minutes"
+    validations:
+      required: true
+  - type: dropdown
+    id: entry-point
+    attributes:
+      label: How did you start?
+      options:
+        - "docker compose (five-minute guide)"
+        - "pip install simuloom-mcp"
+        - "uv sync / run locally from a clone"
+        - "GHCR container image"
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: step
+    attributes:
+      label: Which step caused the most friction?
+      description: Quote the README/launch-guide heading or command, if you can.
+      placeholder: "e.g. \"Run with Docker\" — readyz never returned ready"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Did docs/troubleshooting.md or docs/glossary.md resolve it?
+      description: If you found a fix yourself, tell us — it may belong in the docs.
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: OS and Docker version
+      placeholder: "e.g. macOS 15, Docker Desktop 4.40"
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data safety
+      options:
+        - label: I removed credentials, production data, customer contracts, and personal data.
+          required: true

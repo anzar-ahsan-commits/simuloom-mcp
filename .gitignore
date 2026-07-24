@@ -6,3 +6,5 @@ __pycache__/
 .env
 workspace/*
 !workspace/.gitkeep
+docs/images/e2e-captures/
+test-results/

@@ -39,7 +39,8 @@ When readiness returns `"status": "ready"`, open:
 
 Now follow the copy-pasteable [order lifecycle](../examples/order-lifecycle/README.md). You will
 create a fictional order, inspect it while pending, pay it, ship it, inspect the final result, and
-reset the service for the next test:
+reset the service for the next test. If a step stalls, see [troubleshooting](troubleshooting.md)
+or the [glossary](glossary.md) for unfamiliar terms.
 
 ```text
 NOT_CREATED ── create ──> PENDING ── pay ──> PAID ── ship ──> SHIPPED
@@ -124,9 +125,10 @@ One contract and one governed simulation serve all four workflows.
 ## Current beta boundaries
 
 The default durable stores are SQLite-based and intended for a single application instance.
-WireMock owns live state when it is the selected runtime. Browser-level UI regression automation,
-distributed coordination, hosted identity providers, and a production support SLA remain roadmap
-work. See the [technical guide](technical-guide.md) for the full architecture and limitations.
+WireMock owns live state when it is the selected runtime. Distributed coordination, hosted
+identity providers, and a production support SLA remain roadmap work. See the
+[technical guide](technical-guide.md) for the full architecture and limitations, and
+[e2e testing](e2e-testing.md) for the browser-level UI and accessibility suite.
 
 ## Join the project
 
@@ -134,6 +136,9 @@ work. See the [technical guide](technical-guide.md) for the full architecture an
   [GitHub Discussions](https://github.com/anzar-ahsan-commits/simuloom-mcp/discussions).
 - Report reproducible defects with the bug form in
   [GitHub Issues](https://github.com/anzar-ahsan-commits/simuloom-mcp/issues).
+- Tell us where this guide slowed you down with the
+  [onboarding feedback form](https://github.com/anzar-ahsan-commits/simuloom-mcp/issues/new?template=onboarding_feedback.yml) —
+  that is how we measure and improve time-to-first-scenario without adding product analytics.
 - Read [CONTRIBUTING.md](../CONTRIBUTING.md) before proposing a change.
 - Report vulnerabilities through GitHub private vulnerability reporting, not a public issue.
 

@@ -1,0 +1,56 @@
+name: E2E and accessibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --extra e2e
+
+      - name: Install Playwright's Chromium and its system dependencies
+        run: uv run playwright install --with-deps chromium
+
+      - name: Start the real Compose stack
+        run: docker compose up --build -d
+
+      - name: Wait for readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            curl --fail --silent http://localhost:8000/api/v1/readyz && exit 0
+            sleep 1
+          done
+          echo "::error::stack did not become ready"
+          docker compose logs
+          exit 1
+
+      - name: Run the e2e and accessibility suite
+        run: >
+          uv run pytest e2e -v
+          --tracing=retain-on-failure --screenshot=only-on-failure --video=retain-on-failure
+        env:
+          SIMULOOM_E2E_BASE_URL: http://localhost:8000
+
+      - name: Upload Playwright traces and screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-failure-artifacts
+          path: test-results/
+          retention-days: 7
+
+      - name: Stack logs
+        if: always()
+        run: docker compose logs
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down

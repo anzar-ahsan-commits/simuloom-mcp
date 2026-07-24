@@ -18,7 +18,9 @@ deterministic source of truth through a web console, REST, and MCP.
 > Status: public beta (`v0.42.0`). All example records are fictional and synthetic.
 
 Start the [five-minute order-lifecycle walkthrough](docs/launch.md), explore the
-[technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md).
+[technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md). Stuck
+partway through? Check [troubleshooting](docs/troubleshooting.md) or the [glossary](docs/glossary.md).
+See [supported versions](docs/compatibility.md) for what is continuously verified.
 
 ![SimuLoom Operator Console showing runtime health, simulations, and validation evidence](docs/images/simuloom-overview.png)
 
@@ -713,6 +715,9 @@ validated again at execution. Deployment proposals never request a global runtim
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
 - [Public-launch runbook](docs/public-launch.md)
+- [Release runbook](docs/release-runbook.md)
+- [E2E and accessibility testing](docs/e2e-testing.md)
+- [Compatibility](docs/compatibility.md)
 
 ## License
 

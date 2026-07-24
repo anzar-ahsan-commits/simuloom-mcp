@@ -19,6 +19,9 @@ Run the complete local stack with `docker compose up --build -d`. WireMock is av
 8080 and the SimuLoom console on port 8000. Ollama is optional; AI tests use deterministic mocked
 transports unless explicitly described as live tests.
 
+Changes touching the operator console should also pass the browser-level suite — see
+[e2e testing](docs/e2e-testing.md) for how to run it and update launch-guide screenshots.
+
 ## Pull requests
 
 - Open an issue before large architectural changes.
