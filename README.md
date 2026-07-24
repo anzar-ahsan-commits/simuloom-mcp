@@ -18,7 +18,8 @@ deterministic source of truth through a web console, REST, and MCP.
 > Status: public beta (`v0.42.0`). All example records are fictional and synthetic.
 
 Start the [five-minute order-lifecycle walkthrough](docs/launch.md), explore the
-[technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md).
+[technical guide](docs/technical-guide.md), or see [contribution guidance](CONTRIBUTING.md). Stuck
+partway through? Check [troubleshooting](docs/troubleshooting.md) or the [glossary](docs/glossary.md).
 
 ![SimuLoom Operator Console showing runtime health, simulations, and validation evidence](docs/images/simuloom-overview.png)
 
