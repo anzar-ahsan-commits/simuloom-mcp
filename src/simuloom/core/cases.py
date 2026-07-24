@@ -217,7 +217,7 @@ def build_contract_case(
             headers[name] = rendered
         elif location == "cookie":
             cookies.append(f"{name}={rendered}")
-    for name in re.findall(r"\{([^}]+)\}", resolved_path):
+    for name in re.findall(r"\{([^{}]+)\}", resolved_path):
         if name not in declared_path_parameters:
             fallback = synthetic_value(
                 contract,
