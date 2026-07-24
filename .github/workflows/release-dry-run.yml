@@ -1,0 +1,79 @@
+name: Release dry run
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Dockerfile
+      - pyproject.toml
+      - .github/workflows/release.yml
+      - .github/workflows/release-dry-run.yml
+
+permissions:
+  contents: read
+
+jobs:
+  distributions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+
+      - run: uv build
+
+      - name: Verify the built version is well-formed and the wheel exists
+        run: |
+          version=$(uv run python -c "import simuloom; print(simuloom.__version__)")
+          echo "would tag as: v$version"
+          wheel="dist/simuloom_mcp-${version}-py3-none-any.whl"
+          test -f "$wheel" || { echo "::error::expected $wheel, found:"; ls dist; exit 1; }
+
+      - name: Install the built wheel into a clean environment and smoke-test it
+        run: |
+          python3 -m venv /tmp/release-dry-run-venv
+          /tmp/release-dry-run-venv/bin/pip install --no-cache-dir dist/*.whl
+          /tmp/release-dry-run-venv/bin/simuloom-gitops --help
+
+      - name: Upload the dry-run distributions for inspection
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dry-run-distributions
+          path: dist/
+          retention-days: 7
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: type=raw,value=dry-run
+
+      - name: Build the image locally without pushing
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Smoke-test the built image without publishing it
+        run: |
+          set -euo pipefail
+          docker run -d --name release-dry-run -p 8000:8000 \
+            -e SIMULOOM_RUNTIME=native \
+            -e SIMULOOM_NATIVE_RUNTIME_STORE=memory \
+            "ghcr.io/${{ github.repository }}:dry-run"
+          trap 'docker logs release-dry-run; docker rm -f release-dry-run' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://localhost:8000/api/v1/readyz && exit 0
+            sleep 1
+          done
+          echo "::error::dry-run image did not become ready"
+          exit 1
