@@ -37,6 +37,11 @@ dev = [
   "pytest-asyncio>=1.1,<2",
   "ruff>=0.12,<1",
 ]
+e2e = [
+  "pytest>=8.4,<9",
+  "pytest-playwright>=0.7,<1",
+  "axe-playwright-python>=0.1,<1",
+]
 
 [project.scripts]
 simuloom = "simuloom.main:run"

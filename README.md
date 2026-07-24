@@ -716,6 +716,7 @@ validated again at execution. Deployment proposals never request a global runtim
 - [Changelog](CHANGELOG.md)
 - [Public-launch runbook](docs/public-launch.md)
 - [Release runbook](docs/release-runbook.md)
+- [E2E and accessibility testing](docs/e2e-testing.md)
 - [Compatibility](docs/compatibility.md)
 
 ## License

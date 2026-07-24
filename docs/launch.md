@@ -125,9 +125,10 @@ One contract and one governed simulation serve all four workflows.
 ## Current beta boundaries
 
 The default durable stores are SQLite-based and intended for a single application instance.
-WireMock owns live state when it is the selected runtime. Browser-level UI regression automation,
-distributed coordination, hosted identity providers, and a production support SLA remain roadmap
-work. See the [technical guide](technical-guide.md) for the full architecture and limitations.
+WireMock owns live state when it is the selected runtime. Distributed coordination, hosted
+identity providers, and a production support SLA remain roadmap work. See the
+[technical guide](technical-guide.md) for the full architecture and limitations, and
+[e2e testing](e2e-testing.md) for the browser-level UI and accessibility suite.
 
 ## Join the project
 
