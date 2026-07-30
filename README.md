@@ -144,6 +144,10 @@ Deployed virtual services are then available under
 mappings, scenario state, and journal entries. Docker stores the native SQLite database in
 the existing workspace volume, so deployed behavior resumes after restart.
 
+Want to put SimuLoom on the public internet without paying for hosting? See the
+[free-hosting guide](docs/free-hosting-guide.md) (Oracle Cloud Free Tier + a free domain +
+automatic HTTPS).
+
 ## Run locally
 
 ```bash
