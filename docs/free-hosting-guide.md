@@ -3,33 +3,34 @@
 This walks through putting SimuLoom on the public internet at **$0/month**, with real HTTPS and
 authentication turned on. It uses three free services together:
 
-- **Oracle Cloud Free Tier** — an "Always Free" VM (not a time-limited trial). This is where
-  SimuLoom actually runs.
+- **Google Cloud Free Tier** — an "Always Free" `e2-micro` VM (not a time-limited trial). This
+  is where SimuLoom actually runs.
 - **DuckDNS** — a free subdomain (`yourname.duckdns.org`) pointing at the VM, since Let's
   Encrypt (and therefore automatic HTTPS) needs a real domain name, not a bare IP address.
 - **Caddy** — a reverse proxy that automatically requests and renews the HTTPS certificate for
   that domain. Already wired up in [`deploy/docker-compose.prod.yml`](../deploy/docker-compose.prod.yml).
 
-Everything below is one-time setup. Steps 1–2 need to happen in Oracle's and DuckDNS's own
+Everything below is one-time setup. Steps 1–2 need to happen in Google's and DuckDNS's own
 consoles — there's no way to script account creation or identity verification for you.
 
 ## 1. Create the VM
 
-1. Sign up at [cloud.oracle.com/free](https://www.oracle.com/cloud/free/) (a card is required
-   for identity verification, but Always Free resources are never billed).
-2. Create a Compute instance using an **Always Free** shape — either the Ampere A1 (arm64, up
-   to 4 OCPU / 24GB RAM free) or the AMD/Intel Micro shape if Ampere capacity isn't available in
-   your region. Ubuntu is the simplest image to follow this guide with.
-3. Under the instance's networking, reserve a **persistent public IP** (still free within the
-   Always Free limits) rather than using the ephemeral one — this way DuckDNS never needs
-   updating later.
-4. Open inbound `80/tcp` and `443/tcp` in **two** places — this is the most common reason a
-   fresh Oracle VM is unreachable:
-   - the VM's **Security List / Network Security Group** in the OCI console, and
-   - the OS firewall on the instance itself (Ubuntu images ship with `iptables`/`netfilter`
-     rules that block everything but SSH by default — e.g.
-     `sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT` and the same for `443`, then persist
-     the rules, or use `ufw` if you've switched to it).
+1. Sign up at [cloud.google.com/free](https://cloud.google.com/free) (a card is required for
+   identity verification, but Always Free resources are never billed unless you explicitly
+   upgrade to a paid account).
+2. Create a project, then enable the **Compute Engine API** for it (the console prompts you the
+   first time you open Compute Engine).
+3. Create a VM instance with machine type **`e2-micro`**, in one of the three regions the
+   Always Free tier covers — **`us-west1`, `us-central1`, or `us-east1`** (any other region
+   bills immediately). Pick an Ubuntu boot image with a standard persistent disk of 30GB or
+   less (also free).
+4. On the same creation screen, tick **"Allow HTTP traffic"** and **"Allow HTTPS traffic"** —
+   this creates the needed firewall rules for you. Unlike some clouds, stock Ubuntu images on
+   GCP don't ship with an additional OS-level firewall blocking those ports, so there's no
+   second place to open them.
+5. Under **VPC network → IP addresses**, promote the instance's ephemeral external IP to a
+   **static** one (still free as long as it stays attached to a running instance) — this way
+   DuckDNS never needs updating later.
 
 ## 2. Point a free domain at it
 
@@ -41,7 +42,8 @@ consoles — there's no way to script account creation or identity verification 
 
 ## 3. Install Docker and clone the repo
 
-SSH into the VM, then:
+SSH into the VM — the **"SSH" button next to the instance in the GCP console** opens a
+browser-based terminal with keys handled for you, no local SSH key setup needed — then:
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
@@ -103,3 +105,6 @@ cd deploy && docker compose -f docker-compose.prod.yml up -d --build
 - Treat the generated `SIMULOOM_API_KEYS` value like a password — anyone with it has whatever
   role you assigned it (`admin` can do everything, including changing AI settings and reading
   secrets metadata).
+- The Always Free tier includes 1 GB/month of network egress from North America to most
+  destinations. A personal instance of SimuLoom is nowhere near that for normal use, but it's
+  worth knowing the cap exists if you start driving heavy traffic through it.
