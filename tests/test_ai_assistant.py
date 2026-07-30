@@ -120,7 +120,7 @@ async def test_local_ai_chat_is_grounded_and_returns_only_proposals() -> None:
         )
     ]
 
-    completion = await assistant.chat(
+    completion, trace = await assistant.chat(
         {"simulation": {"id": "sim-orders"}, "scenarios": []},
         history,
         "What should I do next?",
@@ -128,7 +128,89 @@ async def test_local_ai_chat_is_grounded_and_returns_only_proposals() -> None:
 
     assert completion.actions[0].kind == "compile"
     assert completion.actions[0].status == "proposed"
+    assert trace == []
     assert captured["format"]["title"] == "AIChatCompletion"
     assert captured["options"]["temperature"] == 0.2
     assert "cannot execute actions" in captured["messages"][0]["content"]
     assert "sim-orders" in captured["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_local_ai_chat_chains_read_tools_before_answering() -> None:
+    responses = [
+        {
+            "answer": "Checking scenario history before I answer.",
+            "tool_calls": [
+                {"tool": "scenario_history", "arguments": {"scenario_id": "order-lifecycle"}}
+            ],
+            "actions": [],
+            "suggested_prompts": [],
+        },
+        {
+            "answer": "The last revision added a shipped state; safe to redeploy.",
+            "tool_calls": [],
+            "actions": [],
+            "suggested_prompts": [],
+        },
+    ]
+    call_count = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        content = responses[call_count]
+        call_count += 1
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    assistant = ScenarioAIAssistant(
+        True, "http://ollama:11434", "qwen3:8b", httpx.MockTransport(respond)
+    )
+
+    executor_calls: list[tuple[str, dict]] = []
+
+    async def tool_executor(tool: str, arguments: dict) -> dict:
+        executor_calls.append((tool, arguments))
+        return {"revisions": [{"revision": 2}]}
+
+    completion, trace = await assistant.chat(
+        {"simulation": {"id": "sim-orders"}, "scenarios": []},
+        [],
+        "What changed in the order-lifecycle scenario, and should I redeploy?",
+        tool_executor=tool_executor,
+    )
+
+    assert call_count == 2
+    assert executor_calls == [("scenario_history", {"scenario_id": "order-lifecycle"})]
+    assert len(trace) == 1
+    assert trace[0]["tool"] == "scenario_history"
+    assert trace[0]["result"]["revisions"] == [{"revision": 2}]
+    assert "redeploy" in completion.answer
+
+
+@pytest.mark.asyncio
+async def test_local_ai_chat_stops_requesting_tools_after_iteration_cap() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        content = {
+            "answer": "Still looking...",
+            "tool_calls": [{"tool": "list_scenarios", "arguments": {}}],
+            "actions": [],
+            "suggested_prompts": [],
+        }
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    async def tool_executor(tool: str, arguments: dict) -> dict:
+        return {"scenarios": []}
+
+    assistant = ScenarioAIAssistant(
+        True, "http://ollama:11434", "qwen3:8b", httpx.MockTransport(respond)
+    )
+
+    completion, trace = await assistant.chat(
+        {"simulation": {"id": "sim-orders"}, "scenarios": []},
+        [],
+        "Keep looking forever",
+        tool_executor=tool_executor,
+        max_tool_iterations=2,
+    )
+
+    assert completion.answer == "Still looking..."
+    assert len(trace) == 2

@@ -194,8 +194,22 @@ class AIActionProposal(BaseModel):
     result: dict[str, Any] | None = None
 
 
+class AIToolCall(BaseModel):
+    tool: Literal[
+        "inspect_scenario",
+        "scenario_history",
+        "get_release_policy",
+        "compare_scenario_revisions",
+        "scenario_reviews",
+        "list_scenarios",
+        "plan_validation",
+    ]
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
 class AIChatCompletion(BaseModel):
     answer: str = Field(min_length=1, max_length=8_000)
+    tool_calls: list[AIToolCall] = Field(default_factory=list, max_length=3)
     actions: list[AIActionProposal] = Field(default_factory=list, max_length=4)
     suggested_prompts: list[str] = Field(default_factory=list, max_length=4)
 
