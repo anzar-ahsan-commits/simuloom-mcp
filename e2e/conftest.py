@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
-from playwright.sync_api import Page
+from playwright.sync_api import Page, expect
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ORDER_LIFECYCLE = REPO_ROOT / "examples" / "order-lifecycle"
@@ -61,5 +61,9 @@ def seeded_simulation(api_client: httpx.Client) -> dict:
 @pytest.fixture
 def console(page: Page, base_url: str) -> Page:
     page.goto(f"{base_url}/ui")
-    page.wait_for_function("document.querySelector('#runtime-name')?.textContent !== '—'")
+    # Not wait_for_function: the console's CSP (script-src 'self', no unsafe-eval) blocks the
+    # in-page polling script that wait_for_function injects whenever the condition isn't already
+    # true on the first check. expect(...) polls via one-shot CDP evaluation instead, which the
+    # page CSP does not restrict.
+    expect(page.locator("#runtime-name")).not_to_have_text("—", timeout=10_000)
     return page
