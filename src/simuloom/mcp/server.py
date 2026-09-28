@@ -13,6 +13,7 @@ from simuloom.container import (
     secret_vault,
     service,
 )
+from simuloom.core.ai_tools import build_tool_executor
 from simuloom.core.gitops import build_snapshot
 from simuloom.models import AIChatMessage, ScenarioDefinition
 from simuloom.security import Role, require_current_role
@@ -86,7 +87,10 @@ async def chat_with_simulation(thread_id: str, message: str) -> dict:
         raise ValueError("message must contain between 2 and 4000 characters")
     history = [AIChatMessage.model_validate(item) for item in thread["messages"]]
     platform_store.add_ai_message(thread_id, "user", message)
-    completion = await ai_assistant.chat(_mcp_ai_context(thread["simulation_id"]), history, message)
+    executor = build_tool_executor(service, thread["simulation_id"], principal.subject)
+    completion, _trace = await ai_assistant.chat(
+        _mcp_ai_context(thread["simulation_id"]), history, message, tool_executor=executor
+    )
     stored = platform_store.add_ai_message(
         thread_id,
         "assistant",
@@ -139,9 +143,18 @@ async def approve_ai_action(action_id: str) -> dict:
             raise ValueError("AI action kind is not allowlisted")
     except Exception as exc:
         platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+        platform_store.add_ai_message(
+            action["thread_id"], "assistant", f"{action['kind']} failed: {exc}"
+        )
         raise
     platform_store.increment_metric("ai_actions_executed_total")
-    return platform_store.update_ai_action(action_id, "executed", result)
+    updated = platform_store.update_ai_action(action_id, "executed", result)
+    platform_store.add_ai_message(
+        action["thread_id"],
+        "assistant",
+        f"{action['kind']} executed with arguments {json.dumps(arguments, separators=(',', ':'))}.",
+    )
+    return updated
 
 
 @mcp.tool()

@@ -18,7 +18,7 @@ def test_scenario_inspection_renders_state_graph(console: Page, seeded_simulatio
 
     graph = console.locator("#scenario-graph")
     expect(graph).to_be_visible()
-    expect(graph).to_have_attribute("role", "img")
+    expect(graph).to_have_attribute("role", "graphics-document")
     # The order-lifecycle example declares four states: NOT_CREATED, PENDING, PAID, SHIPPED.
     expect(graph.locator("g[role='button']")).to_have_count(4)
     expect(graph.locator('g[aria-label="Select state NOT_CREATED"]')).to_be_visible()

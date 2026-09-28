@@ -29,7 +29,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .brand small { color: var(--muted); margin-top: .15rem; font-size: .72rem; letter-spacing: .04em; }
 nav { display: grid; gap: .45rem; }
 .nav-item { width: 100%; display: flex; align-items: center; gap: .8rem; padding: .78rem .9rem; border: 0; border-radius: 9px; background: transparent; color: var(--muted); text-align: left; text-decoration: none; cursor: pointer; }
-.nav-item span { font: 600 .62rem ui-monospace, monospace; color: #65748b; }
+.nav-item span { font: 600 .62rem ui-monospace, monospace; color: var(--muted); }
 .nav-item:hover, .nav-item:focus-visible, .nav-item.active { color: var(--text); background: var(--surface-2); outline: none; }
 .nav-item.active span { color: var(--accent); }
 .sidebar-foot { margin-top: auto; padding: 1rem .55rem 0; color: var(--muted); }
@@ -211,7 +211,7 @@ input[type="file"] { padding: .52rem; }
   .sidebar { position: static; width: 100%; height: auto; padding: 1rem; flex-direction: row; align-items: center; gap: 1rem; }
   .brand { margin: 0 auto 0 0; }
   .brand small, .sidebar-foot, .nav-item span { display: none; }
-  nav { display: flex; }
+  nav { display: flex; flex-wrap: wrap; }
   .nav-item { width: auto; padding: .65rem; }
   main { padding: 0 1rem 3rem; }
   .topbar { min-height: 110px; margin-bottom: 1.2rem; }

@@ -73,10 +73,16 @@ async function loadCopilotThreads() {
   } catch (error) { notify(error.message, true); }
 }
 
-async function createCopilotThread() {
+async function createCopilotThread(event) {
+  const button = event?.currentTarget;
   const simulationId = $("#copilot-simulation").value;
   if (!simulationId) { notify("Select a simulation first", true); return; }
   const simulation = state.simulations.find((item) => item.id === simulationId);
+  // Without this guard, a second click before the first create finishes starts an overlapping
+  // call that races the first on shared state (copilot.selectedId), so whichever finishes last
+  // wins the "active" thread — sometimes leaving the older thread active despite a newer one
+  // having just been created.
+  setBusy(button, true);
   try {
     const thread = await api("/ai/chat/threads", { method: "POST", body: JSON.stringify({ simulation_id: simulationId, title: `${simulation.name} assistant` }) });
     rememberCopilotThread(thread.id);
@@ -84,6 +90,7 @@ async function createCopilotThread() {
     await selectCopilotThread(thread.id);
     $("#copilot-input").focus();
   } catch (error) { notify(error.message, true); }
+  finally { setBusy(button, false); }
 }
 
 function renderCopilotAction(action) {

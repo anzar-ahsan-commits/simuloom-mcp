@@ -254,12 +254,13 @@ async function runAction(button) {
 
 async function createSimulation(event) {
   event.preventDefault();
-  const submit = $('button[type="submit"]', event.currentTarget);
+  const form = event.currentTarget;
+  const submit = $('button[type="submit"]', form);
   setBusy(submit, true);
   try {
-    const result = await api("/simulations/from-contract", { method: "POST", body: new FormData(event.currentTarget) });
+    const result = await api("/simulations/from-contract", { method: "POST", body: new FormData(form) });
     $("#create-dialog").close();
-    event.currentTarget.reset();
+    form.reset();
     await loadDashboard();
     selectSimulation(result.id);
     notify("Simulation workspace created");

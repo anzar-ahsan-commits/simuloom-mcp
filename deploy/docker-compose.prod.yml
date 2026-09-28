@@ -1,0 +1,45 @@
+services:
+  simuloom:
+    build: ..
+    restart: unless-stopped
+    environment:
+      SIMULOOM_WORKSPACE: /app/workspace
+      SIMULOOM_RUNTIME: native
+      SIMULOOM_NATIVE_RUNTIME_STORE: sqlite
+      SIMULOOM_NATIVE_RUNTIME_DB: /app/workspace/runtime/native.db
+      SIMULOOM_NATIVE_JOURNAL_LIMIT: 1000
+      SIMULOOM_PLATFORM_DB: /app/workspace/runtime/platform.db
+      SIMULOOM_AUTH_ENABLED: "true"
+      SIMULOOM_API_KEYS: ${SIMULOOM_API_KEYS:?set SIMULOOM_API_KEYS in deploy/.env}
+      SIMULOOM_AUDIT_SIGNING_KEY: ${SIMULOOM_AUDIT_SIGNING_KEY:?set SIMULOOM_AUDIT_SIGNING_KEY in deploy/.env}
+      SIMULOOM_AI_ENABLED: "false"
+    volumes:
+      - simuloom-workspace:/app/workspace
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - simuloom
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SIMULOOM_DOMAIN: ${SIMULOOM_DOMAIN:?set SIMULOOM_DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  simuloom-workspace:
+  caddy-data:
+  caddy-config:

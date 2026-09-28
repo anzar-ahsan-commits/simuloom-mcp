@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Annotated
 
@@ -28,6 +29,7 @@ from simuloom.container import (
     secret_vault,
     service,
 )
+from simuloom.core.ai_tools import build_tool_executor
 from simuloom.core.gitops import build_snapshot
 from simuloom.core.manifest import MAX_BUNDLE_SIZE
 from simuloom.core.scenario_approvals import ScenarioApprovalError
@@ -694,7 +696,10 @@ async def send_ai_chat_message(
         history = [AIChatMessage.model_validate(item) for item in thread["messages"]]
         context = _ai_simulation_context(thread["simulation_id"])
         platform_store.add_ai_message(thread_id, "user", request.content)
-        completion = await ai_assistant.chat(context, history, request.content)
+        executor = build_tool_executor(service, thread["simulation_id"], principal.subject)
+        completion, _trace = await ai_assistant.chat(
+            context, history, request.content, tool_executor=executor
+        )
         stored = platform_store.add_ai_message(
             thread_id,
             "assistant",
@@ -751,6 +756,12 @@ async def approve_ai_chat_action(action_id: str, principal: OperatorPrincipal) -
             raise ValueError("AI action kind is not allowlisted")
         updated = platform_store.update_ai_action(action_id, "executed", result)
         platform_store.increment_metric("ai_actions_executed_total")
+        platform_store.add_ai_message(
+            action["thread_id"],
+            "assistant",
+            f"{action['kind']} executed with arguments "
+            f"{json.dumps(arguments, separators=(',', ':'))}.",
+        )
         return AIActionProposal.model_validate(updated)
     except HTTPException:
         raise
@@ -759,11 +770,17 @@ async def approve_ai_chat_action(action_id: str, principal: OperatorPrincipal) -
     except ValueError as exc:
         try:
             platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+            platform_store.add_ai_message(
+                action["thread_id"], "assistant", f"{action['kind']} failed: {exc}"
+            )
         except KeyError:
             pass
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         platform_store.update_ai_action(action_id, "failed", {"error": str(exc)})
+        platform_store.add_ai_message(
+            action["thread_id"], "assistant", f"{action['kind']} failed: {exc}"
+        )
         raise HTTPException(status_code=502, detail="Approved AI operation failed") from exc
 
 

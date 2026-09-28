@@ -81,7 +81,67 @@ def test_ai_chat_persists_grounded_messages_and_requires_action_approval(
     assert approved.json()["status"] == "executed"
     assert approved.json()["result"]["simulation_id"] == simulation.id
     assert replayed.status_code == 409
+    messages = thread.json()["messages"]
+    assert len(messages) == 3
+    assert "compile executed" in messages[-1]["content"]
+
+
+def test_ai_chat_read_tool_loop_stays_ephemeral_and_audited(tmp_path: Path, monkeypatch) -> None:
+    store = PlatformStore(tmp_path / "platform.db")
+    test_service = SimulationService(
+        WorkspaceRepository(tmp_path / "workspace"), WireMockClient("http://wiremock.invalid")
+    )
+    simulation = test_service.create("Read-tool API", contract())
+    responses = [
+        {
+            "answer": "Checking what scenarios exist first.",
+            "tool_calls": [{"tool": "list_scenarios", "arguments": {}}],
+            "actions": [],
+            "suggested_prompts": [],
+        },
+        {
+            "answer": "There are no scenarios configured yet.",
+            "tool_calls": [],
+            "actions": [],
+            "suggested_prompts": [],
+        },
+    ]
+    call_count = 0
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        content = responses[call_count]
+        call_count += 1
+        return httpx.Response(200, json={"message": {"content": json.dumps(content)}})
+
+    assistant = ScenarioAIAssistant(
+        True, "http://ollama:11434", "test-model", httpx.MockTransport(respond)
+    )
+    monkeypatch.setattr("simuloom.api.routes.platform_store", store)
+    monkeypatch.setattr("simuloom.api.routes.service", test_service)
+    monkeypatch.setattr("simuloom.api.routes.ai_assistant", assistant)
+    client = TestClient(create_app())
+    try:
+        created = client.post(
+            "/api/v1/ai/chat/threads",
+            json={"simulation_id": simulation.id, "title": "Inventory check"},
+        )
+        thread_id = created.json()["id"]
+        message = client.post(
+            f"/api/v1/ai/chat/threads/{thread_id}/messages",
+            json={"content": "What scenarios exist here?"},
+        )
+        thread = client.get(f"/api/v1/ai/chat/threads/{thread_id}")
+    finally:
+        client.close()
+
+    assert call_count == 2
+    assert message.json()["content"] == "There are no scenarios configured yet."
+    # The read-tool round trip is ephemeral: only the user prompt and the final
+    # assistant answer are persisted, never an intermediate tool-call turn.
     assert len(thread.json()["messages"]) == 2
+    audit_events = test_service.domain_audit_events()
+    assert any(event["path"].endswith("ai-read/list_scenarios") for event in audit_events)
 
 
 def test_ai_chat_is_disabled_without_opt_in(tmp_path: Path, monkeypatch) -> None:

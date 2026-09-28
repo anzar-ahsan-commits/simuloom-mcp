@@ -1,0 +1,3 @@
+{$SIMULOOM_DOMAIN} {
+	reverse_proxy simuloom:8000
+}
