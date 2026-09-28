@@ -37,6 +37,14 @@ def test_enabled_auth_requires_configured_keys() -> None:
         AccessController(True, "{}")
 
 
+@pytest.mark.parametrize("role", ["owner", None, [], {}, 42])
+def test_invalid_configured_role_raises_value_error(role: object) -> None:
+    api_keys = {"test-secret-123456": {"subject": "tester", "role": role}}
+
+    with pytest.raises(ValueError, match="Invalid role configured for subject tester"):
+        AccessController(True, json.dumps(api_keys))
+
+
 def test_audit_chain_detects_tampering(tmp_path: Path) -> None:
     path = tmp_path / "audit" / "events.jsonl"
     audit = AuditLog(path, "audit-signing-secret")
