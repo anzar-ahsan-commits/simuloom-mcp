@@ -26,19 +26,19 @@ dependencies = [
   "httpx>=0.28,<1",
   "pydantic>=2.11,<3",
   "PyYAML>=6.0,<7",
-  "Faker==40.31.0",
+  "Faker==40.36.0",
   "jsonschema>=4.26,<5",
-  "cryptography>=45,<50",
+  "cryptography>=45,<51",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.4,<9",
+  "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "ruff>=0.12,<1",
 ]
 e2e = [
-  "pytest>=8.4,<9",
+  "pytest>=8.4,<10",
   "pytest-playwright>=0.7,<1",
   "axe-playwright-python>=0.1,<1",
 ]
